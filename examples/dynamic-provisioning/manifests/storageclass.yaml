@@ -1,0 +1,6 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: hyperv-sc
+provisioner: hyperv.csi.k8s.io
+volumeBindingMode: WaitForFirstConsumer

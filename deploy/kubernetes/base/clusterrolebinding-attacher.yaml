@@ -1,0 +1,14 @@
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: hyperv-csi-attacher-binding
+  labels:
+    app.kubernetes.io/name: hyperv-csi-driver
+subjects:
+  - kind: ServiceAccount
+    name: hyperv-csi-controller-sa
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: hyperv-external-attacher-role
+  apiGroup: rbac.authorization.k8s.io

@@ -25,6 +25,7 @@ import (
 
 	csi "github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/mounter"
+	"github.com/nhduc2001kt/hyperv-csi-driver/options"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -41,7 +42,7 @@ const (
 	VolumeOperationAlreadyExists = "An operation with the given volume=%q is already in progress"
 
 	// sbeDeviceVolumeAttachmentLimit refers to the maximum number of volumes that can be attached to an instance on snow.
-	sbeDeviceVolumeAttachmentLimit = 10
+	// sbeDeviceVolumeAttachmentLimit = 10
 )
 
 // var (
@@ -55,11 +56,11 @@ const (
 
 var (
 	// nodeCaps represents the capability of node service.
-	nodeCaps = []csi.NodeServiceCapability_RPC_Type{
-		csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
-		csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
-		csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
-	}
+	// nodeCaps = []csi.NodeServiceCapability_RPC_Type{
+	// 	csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+	// 	csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
+	// 	csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
+	// }
 
 	// taintRemovalInitialDelay is the initial delay for node taint removal.
 	taintRemovalInitialDelay = 1 * time.Second
@@ -74,14 +75,14 @@ var (
 // NodeService represents the node service of CSI driver.
 type NodeService struct {
 	// metadata metadata.MetadataService
-	mounter  mounter.Mounter
+	mounter mounter.Mounter
 	// inFlight *internal.InFlight
-	options  *Options
+	options *options.Options
 	csi.UnimplementedNodeServer
 }
 
 // NewNodeService creates a new node service.
-func NewNodeService(o *Options, m mounter.Mounter, k kubernetes.Interface) *NodeService {
+func NewNodeService(o *options.Options, m mounter.Mounter, k kubernetes.Interface) *NodeService {
 	if k != nil {
 		// Remove taint from node to indicate driver startup success
 		// This is done at the last possible moment to prevent race conditions or false positive removals
@@ -91,8 +92,8 @@ func NewNodeService(o *Options, m mounter.Mounter, k kubernetes.Interface) *Node
 	}
 
 	return &NodeService{
-		mounter:  m,
-		options:  o,
+		mounter: m,
+		options: o,
 	}
 }
 
@@ -851,7 +852,7 @@ func removeTaintInBackground(k8sClient kubernetes.Interface, backoff wait.Backof
 	}
 }
 
-// removeNotReadyTaint removes the taint ebs.csi.aws.com/agent-not-ready from the local node
+// removeNotReadyTaint removes the taint hyperv.csi.k8s.io/agent-not-ready from the local node
 // This taint can be optionally applied by users to prevent startup race conditions such as
 // https://github.com/kubernetes/kubernetes/issues/95911
 func removeNotReadyTaint(clientset kubernetes.Interface) error {
