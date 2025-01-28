@@ -12,19 +12,19 @@ type hyperVConfig struct {
 	https    bool
 	insecure bool
 
-	krbRealm  string
-	krbSpn    string
-	krbConfig string
-	krbCCache string
+	// krbRealm  string
+	// krbSpn    string
+	// krbConfig string
+	// krbCCache string
 
-	ntlm bool
+	// ntlm bool
 
-	tlsServerName string
-	caCert        []byte
-	cert          []byte
-	key           []byte
+	// tlsServerName string
+	// caCert        []byte
+	// cert          []byte
+	// key           []byte
 
-	scriptPath string
+	// scriptPath string
 	timeout    string
 }
 

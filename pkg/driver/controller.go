@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	csi "github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/nhduc2001kt/hyperv-csi-driver/options"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/cloud"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/driver/internal"
@@ -260,8 +260,21 @@ func (d *ControllerService) ControllerPublishVolume(ctx context.Context, req *cs
 	defer d.inFlight.Delete(volumeID + nodeID)
 
 	klog.V(2).InfoS("ControllerPublishVolume: attaching", "volumeID", volumeID, "nodeID", nodeID)
-	// devicePath, err := d.cloud.AttachDisk(ctx, volumeID, nodeID)
-	return nil, status.Error(codes.Unimplemented, "ControllerPublishVolume is not implemented")
+
+	input := cloud.AttachHyperVVHDInput{
+		VmID:    nodeID,
+		VHDPath: volumeID,
+	}
+	output, err := d.cloud.AttachHyperVVHD(ctx, &input)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not attach volume %q to node %q: %v", volumeID, nodeID, err)
+	}
+
+	pvInfo := map[string]string{
+		ControllerNumberKey:   string(output.ControllerNumber),
+		ControllerLocationKey: string(output.ControllerLocation),
+	}
+	return &csi.ControllerPublishVolumeResponse{PublishContext: pvInfo}, nil
 }
 
 func (d *ControllerService) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
@@ -280,8 +293,19 @@ func (d *ControllerService) ControllerUnpublishVolume(ctx context.Context, req *
 	defer d.inFlight.Delete(volumeID + nodeID)
 
 	klog.V(2).InfoS("ControllerUnpublishVolume: detaching", "volumeID", volumeID, "nodeID", nodeID)
+	input := cloud.DetachHyperVVHDInput{
+		VmID:    nodeID,
+		VHDPath: volumeID,
+	}
+	output, err := d.cloud.DetachHyperVVHD(ctx, &input)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not attach volume %q to node %q: %v", volumeID, nodeID, err)
+	}
+	if output == nil {
+		klog.InfoS("ControllerUnpublishVolume: attachment not found", "volumeID", volumeID, "nodeID", nodeID)
+	}
 
-	return nil, status.Error(codes.Unimplemented, "ControllerUnpublishVolume is not implemented")
+	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 func newCreateVolumeResponse(output *cloud.CreateHyperVVHDOutput) *csi.CreateVolumeResponse {

@@ -9,30 +9,29 @@ import (
 	// "path/filepath"
 	"strconv"
 	"strings"
-
 	// "github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 type ControllerType int
 
 const (
-	ControllerTypeIde  ControllerType = 0
-	ControllerTypeScsi ControllerType = 1
+	ControllerTypeIDE  ControllerType = 0
+	ControllerTypeSCSI ControllerType = 1
 )
 
 const (
-	ControllerTypeIdeText  = "Ide"
-	ControllerTypeScsiText = "Scsi"
+	ControllerTypeIDEText  = "Ide"
+	ControllerTypeSCSIText = "Scsi"
 )
 
 var ControllerTypename = map[ControllerType]string{
-	ControllerTypeIde:  ControllerTypeIdeText,
-	ControllerTypeScsi: ControllerTypeScsiText,
+	ControllerTypeIDE:  ControllerTypeIDEText,
+	ControllerTypeSCSI: ControllerTypeSCSIText,
 }
 
 var ControllerTypeValue = map[string]ControllerType{
-	strings.ToLower(ControllerTypeIdeText):  ControllerTypeIde,
-	strings.ToLower(ControllerTypeScsiText): ControllerTypeScsi,
+	strings.ToLower(ControllerTypeIDEText):  ControllerTypeIDE,
+	strings.ToLower(ControllerTypeSCSIText): ControllerTypeSCSI,
 }
 
 var (
@@ -138,7 +137,6 @@ func (d *CacheAttributes) UnmarshalJSON(b []byte) error {
 }
 
 // func DiffSuppressVMHardDiskPath(key, old, new string, d *schema.ResourceData) bool {
-// 	log.Printf("[DEBUG] '[%s]' Comparing old value '[%v]' with new value '[%v]' ", key, old, new)
 // 	if new == "" {
 // 		// We have not explicitly set a value, so allow any value as we are not tracking it
 // 		return true
@@ -170,7 +168,7 @@ func (d *CacheAttributes) UnmarshalJSON(b []byte) error {
 // 			if !ok {
 // 				return nil, fmt.Errorf("[ERROR][hyperv] hard_disk_drives should be a Hash - was '%+v'", hardDiskDrive)
 // 			}
-			
+
 // 			controllerType, err := StringToControllerType(hardDiskDrive["controller_type"].(string))
 // 			if err != nil {
 // 				return nil, fmt.Errorf("[ERROR][hyperv] controller_type should be a valid ControllerType - was '%+v'", hardDiskDrive["controller_type"])
@@ -240,6 +238,12 @@ type VMHardDiskDrive struct {
 }
 
 type HyperVVMHardDiskDriveClient interface {
+	AttachVMHardDiskDrive(
+		ctx context.Context,
+		vmName string,
+		controllerType ControllerType,
+		path string,
+	) (err error)
 	CreateVMHardDiskDrive(
 		ctx context.Context,
 		vmName string,
@@ -254,9 +258,9 @@ type HyperVVMHardDiskDriveClient interface {
 		minimumIops uint64,
 		qosPolicyId string,
 		overrideCacheAttributes CacheAttributes,
-
 	) (err error)
 	GetVMHardDiskDrives(ctx context.Context, vmName string) (result []VMHardDiskDrive, err error)
+	GetVMHardDiskDrivesByID(ctx context.Context, vmID string) (result []VMHardDiskDrive, err error)
 	UpdateVMHardDiskDrive(
 		ctx context.Context,
 		vmName string,
@@ -274,6 +278,6 @@ type HyperVVMHardDiskDriveClient interface {
 		qosPolicyId string,
 		overrideCacheAttributes CacheAttributes,
 	) (err error)
-	DeleteVMHardDiskDrive(ctx context.Context, vmname string, controllerNumber int32, controllerLocation int32) (err error)
+	DeleteVMHardDiskDrive(ctx context.Context, vmName string, controllerNumber int32, controllerLocation int32) (err error)
 	CreateOrUpdateVMHardDiskDrives(ctx context.Context, vmName string, hardDiskDrives []VMHardDiskDrive) (err error)
 }

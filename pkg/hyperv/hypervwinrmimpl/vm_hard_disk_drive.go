@@ -2,42 +2,88 @@ package hypervwinrmimpl
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"text/template"
 
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/hyperv"
 )
 
+var (
+	//go:embed scripts/Attach-VMHardDiskDrive.ps1
+	attachVMHardDiskDriveFile string
+	//go:embed scripts/Create-VMHardDiskDrive.ps1
+	createVMHardDiskDriveFile string
+	//go:embed scripts/Get-VMHardDiskDrives.ps1
+	getVMHardDiskDrivesFile string
+	//go:embed scripts/Get-VMHardDiskDrivesByID.ps1
+	getVMHardDiskDrivesByIDFile string
+	//go:embed scripts/Update-VMHardDiskDrive.ps1
+	updateVMHardDiskDriveFile string
+	//go:embed scripts/Delete-VMHardDiskDrive.ps1
+	deleteVMHardDiskDriveFile string
+)
+
+var (
+	attachVMHardDiskDriveTemplate   = template.Must(template.New("AttachVMHardDiskDrive").Parse(attachVMHardDiskDriveFile))
+	createVMHardDiskDriveTemplate   = template.Must(template.New("CreateVMHardDiskDrive").Parse(createVMHardDiskDriveFile))
+	getVMHardDiskDrivesTemplate     = template.Must(template.New("GetVMHardDiskDrives").Parse(getVMHardDiskDrivesFile))
+	getVMHardDiskDrivesByIDTemplate = template.Must(template.New("GetVMHardDiskDrivesByID").Parse(getVMHardDiskDrivesByIDFile))
+	updateVMHardDiskDriveTemplate   = template.Must(template.New("UpdateVMHardDiskDrive").Parse(updateVMHardDiskDriveFile))
+	deleteVMHardDiskDriveTemplate   = template.Must(template.New("DeleteVMHardDiskDrive").Parse(deleteVMHardDiskDriveFile))
+)
+
+type attachVMHardDiskDriveArgs struct {
+	VMHardDiskDriveJson string
+}
+
 type createVMHardDiskDriveArgs struct {
 	VMHardDiskDriveJson string
 }
 
-var createVMHardDiskDriveTemplate = template.Must(template.New("CreateVMHardDiskDrive").Parse(`
-$ErrorActionPreference = 'Stop'
-Import-Module Hyper-V
-$vmHardDiskDrive = '{{.VMHardDiskDriveJson}}' | ConvertFrom-Json
-
-$NewVMHardDiskDriveArgs = @{
-	VMName=$vmHardDiskDrive.VMName
-	ControllerType=$vmHardDiskDrive.ControllerType
-	ControllerNumber=$vmHardDiskDrive.ControllerNumber
-	ControllerLocation=$vmHardDiskDrive.ControllerLocation
-	Path=$vmHardDiskDrive.Path
-	ResourcePoolName=$vmHardDiskDrive.ResourcePoolName
-	SupportPersistentReservations=$vmHardDiskDrive.SupportPersistentReservations
-	MaximumIops=$_.MaximumIops;
-	MinimumIops=$_.MinimumIops;
-	QosPolicyId=$_.QosPolicyId;
-	OverrideCacheAttributes=$vmHardDiskDrive.OverrideCacheAttributes
-	AllowUnverifiedPaths=$true
+type getVMHardDiskDrivesArgs struct {
+	VMName string
 }
 
-if ($vmHardDiskDrive.DiskNumber -lt 4294967295){
-	$NewVMHardDiskDriveArgs.DiskNumber=$vmHardDiskDrive.DiskNumber
+type getVMHardDiskDrivesByIDArgs struct {
+	ID string
 }
 
-Add-VMHardDiskDrive @NewVMHardDiskDriveArgs
-`))
+type updateVMHardDiskDriveArgs struct {
+	VMName              string
+	ControllerNumber    int32
+	ControllerLocation  int32
+	VMHardDiskDriveJson string
+}
+
+type deleteVMHardDiskDriveArgs struct {
+	VMName             string
+	ControllerNumber   int32
+	ControllerLocation int32
+}
+
+func (c *hypervClientImpl) AttachVMHardDiskDrive(
+	ctx context.Context,
+	vmName string,
+	controllerType hyperv.ControllerType,
+	path string,
+) (err error) {
+	vmHardDiskDriveJson, err := json.Marshal(hyperv.VMHardDiskDrive{
+		VMName:         vmName,
+		ControllerType: controllerType,
+		Path:           path,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	err = c.winrmClient.RunFireAndForgetScript(ctx, attachVMHardDiskDriveTemplate, attachVMHardDiskDriveArgs{
+		VMHardDiskDriveJson: string(vmHardDiskDriveJson),
+	})
+
+	return err
+}
 
 func (c *hypervClientImpl) CreateVMHardDiskDrive(
 	ctx context.Context,
@@ -81,34 +127,6 @@ func (c *hypervClientImpl) CreateVMHardDiskDrive(
 	return err
 }
 
-type getVMHardDiskDrivesArgs struct {
-	VMName string
-}
-
-var getVMHardDiskDrivesTemplate = template.Must(template.New("GetVMHardDiskDrives").Parse(`
-$ErrorActionPreference = 'Stop'
-$vmHardDiskDrivesObject = @(Get-VM -Name '{{.VMName}}*' | ?{$_.Name -eq '{{.VMName}}' } | Get-VMHardDiskDrive | %{ @{
-	ControllerType=$_.ControllerType;
-	ControllerNumber=$_.ControllerNumber;
-	ControllerLocation=$_.ControllerLocation;
-	Path=$_.Path;
-	DiskNumber=if ($_.DiskNumber -eq $null) { 4294967295 } else { $_.DiskNumber };
-	ResourcePoolName=$_.PoolName;
-	SupportPersistentReservations=$_.SupportPersistentReservations;
-	MaximumIops=$_.MaximumIops;
-	MinimumIops=$_.MinimumIops;
-	QosPolicyId=$_.QosPolicyId;	
-	OverrideCacheAttributes=$_.WriteHardeningMethod;
-}})
-
-if ($vmHardDiskDrivesObject) {
-	$vmHardDiskDrives = ConvertTo-Json -InputObject $vmHardDiskDrivesObject
-	$vmHardDiskDrives
-} else {
-	"[]"
-}
-`))
-
 func (c *hypervClientImpl) GetVMHardDiskDrives(ctx context.Context, vmName string) (result []hyperv.VMHardDiskDrive, err error) {
 	result = make([]hyperv.VMHardDiskDrive, 0)
 
@@ -119,52 +137,15 @@ func (c *hypervClientImpl) GetVMHardDiskDrives(ctx context.Context, vmName strin
 	return result, err
 }
 
-type updateVMHardDiskDriveArgs struct {
-	VMName              string
-	ControllerNumber    int32
-	ControllerLocation  int32
-	VMHardDiskDriveJson string
+func (c *hypervClientImpl) GetVMHardDiskDrivesByID(ctx context.Context, vmID string) (result []hyperv.VMHardDiskDrive, err error) {
+	result = make([]hyperv.VMHardDiskDrive, 0)
+
+	err = c.winrmClient.RunScriptWithResult(ctx, getVMHardDiskDrivesByIDTemplate, getVMHardDiskDrivesByIDArgs{
+		ID: vmID,
+	}, &result)
+
+	return result, err
 }
-
-var updateVMHardDiskDriveTemplate = template.Must(template.New("UpdateVMHardDiskDrive").Parse(`
-$ErrorActionPreference = 'Stop'
-Import-Module Hyper-V
-$vmHardDiskDrive = '{{.VMHardDiskDriveJson}}' | ConvertFrom-Json
-
-$vmHardDiskDrivesObject = @(Get-VM -Name '{{.VMName}}*' | ?{$_.Name -eq '{{.VMName}}' } | Get-VMHardDiskDrive -ControllerLocation {{.ControllerLocation}} -ControllerNumber {{.ControllerNumber}} )
-
-if (!$vmHardDiskDrivesObject){
-	throw "VM hard disk drive does not exist - {{.ControllerLocation}} {{.ControllerNumber}}"
-}
-
-$SetVMHardDiskDriveArgs = @{}
-$SetVMHardDiskDriveArgs.VMName=$vmHardDiskDrivesObject.VMName
-$SetVMHardDiskDriveArgs.ControllerType=$vmHardDiskDrivesObject.ControllerType
-$SetVMHardDiskDriveArgs.ControllerLocation=$vmHardDiskDrivesObject.ControllerLocation
-$SetVMHardDiskDriveArgs.ControllerNumber=$vmHardDiskDrivesObject.ControllerNumber
-$SetVMHardDiskDriveArgs.ToControllerLocation=$vmHardDiskDrive.ControllerLocation
-$SetVMHardDiskDriveArgs.ToControllerNumber=$vmHardDiskDrive.ControllerNumber
-$SetVMHardDiskDriveArgs.Path=$vmHardDiskDrive.Path
-if ($vmHardDiskDrive.DiskNumber -lt 4294967295){
-	$SetVMHardDiskDriveArgs.DiskNumber=$vmHardDiskDrive.DiskNumber
-}
-if ($vmHardDiskDrivesObject.ResourcePoolName -ne $vmHardDiskDrive.ResourcePoolName) {
-	if ($vmHardDiskDrive.ResourcePoolName) {
-		$SetVMHardDiskDriveArgs.ResourcePoolName=$vmHardDiskDrive.ResourcePoolName
-	} else {
-		throw "Unable to remove resource pool $($vmHardDiskDrive.ResourcePoolName) from hard disk drive $(ConvertTo-Json -InputObject $vmHardDiskDrivesObject)"
-	}
-}
-$SetVMHardDiskDriveArgs.SupportPersistentReservations=$vmHardDiskDrive.SupportPersistentReservations
-$SetVMHardDiskDriveArgs.MaximumIops=$vmHardDiskDrive.MaximumIops
-$SetVMHardDiskDriveArgs.MinimumIops=$vmHardDiskDrive.MinimumIops
-$SetVMHardDiskDriveArgs.QosPolicyId=$vmHardDiskDrive.QosPolicyId
-$SetVMHardDiskDriveArgs.OverrideCacheAttributes=$vmHardDiskDrive.OverrideCacheAttributes	
-$SetVMHardDiskDriveArgs.AllowUnverifiedPaths=$true
-
-Set-VMHardDiskDrive @SetVMHardDiskDriveArgs
-
-`))
 
 func (c *hypervClientImpl) UpdateVMHardDiskDrive(
 	ctx context.Context,
@@ -211,18 +192,6 @@ func (c *hypervClientImpl) UpdateVMHardDiskDrive(
 
 	return err
 }
-
-type deleteVMHardDiskDriveArgs struct {
-	VMName             string
-	ControllerNumber   int32
-	ControllerLocation int32
-}
-
-var deleteVMHardDiskDriveTemplate = template.Must(template.New("DeleteVMHardDiskDrive").Parse(`
-$ErrorActionPreference = 'Stop'
-
-@(Get-VMHardDiskDrive -VMName '{{.VMName}}' -ControllerNumber {{.ControllerNumber}} -ControllerLocation {{.ControllerLocation}}) | Remove-VMHardDiskDrive
-`))
 
 func (c *hypervClientImpl) DeleteVMHardDiskDrive(ctx context.Context, vmname string, controllerNumber int32, controllerLocation int32) (err error) {
 	err = c.winrmClient.RunFireAndForgetScript(ctx, deleteVMHardDiskDriveTemplate, deleteVMHardDiskDriveArgs{

@@ -44,14 +44,31 @@ type DeleteHyperVVHDInput struct {
 
 type DeleteHyperVVHDOutput struct{}
 
-type AttachHyperVVHDInput struct{}
+type AttachHyperVVHDInput struct {
+	VmID    string
+	VHDPath string
+}
 
-type AttachHyperVVHDOutput struct{}
+type AttachHyperVVHDOutput struct {
+	ControllerNumber   int32
+	ControllerLocation int32
+}
+
+type DetachHyperVVHDInput struct {
+	VmID    string
+	VHDPath string
+}
+
+type DetachHyperVVHDOutput struct {
+	ControllerNumber   int32
+	ControllerLocation int32
+}
 
 type Cloud interface {
 	CreateHyperVVHD(context.Context, *CreateHyperVVHDInput) (*CreateHyperVVHDOutput, error)
 	DeleteHyperVVHD(context.Context, *DeleteHyperVVHDInput) (*DeleteHyperVVHDOutput, error)
 	AttachHyperVVHD(context.Context, *AttachHyperVVHDInput) (*AttachHyperVVHDOutput, error)
+	DetachHyperVVHD(context.Context, *DetachHyperVVHDInput) (*DetachHyperVVHDOutput, error)
 }
 
 type CloudConfig interface {
@@ -118,7 +135,74 @@ func (c *cloud) DeleteHyperVVHD(ctx context.Context, i *DeleteHyperVVHDInput) (*
 
 func (c *cloud) AttachHyperVVHD(ctx context.Context, i *AttachHyperVVHDInput) (*AttachHyperVVHDOutput, error) {
 	klog.V(4).InfoS("AttachHyperVVHD: called", "args", util.SanitizeRequest(i))
-	
 
-	return &AttachHyperVVHDOutput{}, nil
+	client := c.hypervClient
+
+	vm, err := client.GetVMByID(ctx, i.VmID)
+	if err != nil {
+		return nil, err
+	}
+
+	err = client.AttachVMHardDiskDrive(
+		ctx,
+		vm.Name,
+		hyperv.ControllerTypeSCSI,
+		i.VHDPath,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	vmDisks, err := client.GetVMHardDiskDrives(ctx, vm.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, disk := range vmDisks {
+		if disk.Path == i.VHDPath {
+			return &AttachHyperVVHDOutput{
+				ControllerNumber:   disk.ControllerNumber,
+				ControllerLocation: disk.ControllerLocation,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("failed to attach VHD %s to VM %s", i.VHDPath, vm.Name)
+}
+
+func (c *cloud) DetachHyperVVHD(ctx context.Context, i *DetachHyperVVHDInput) (*DetachHyperVVHDOutput, error) {
+	klog.V(4).InfoS("DetachHyperVVHD: called", "args", util.SanitizeRequest(i))
+
+	client := c.hypervClient
+
+	vm, err := client.GetVMByID(ctx, i.VmID)
+	if err != nil {
+		return nil, err
+	}
+
+	vmDisks, err := client.GetVMHardDiskDrives(ctx, vm.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, disk := range vmDisks {
+		if disk.Path == i.VHDPath {
+			err = client.DeleteVMHardDiskDrive(
+				ctx,
+				vm.Name,
+				disk.ControllerNumber,
+				disk.ControllerLocation,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &DetachHyperVVHDOutput{
+				ControllerLocation: disk.ControllerLocation,
+				ControllerNumber:   disk.ControllerNumber,
+			}, nil
+		}
+	}
+
+	return nil, nil
 }

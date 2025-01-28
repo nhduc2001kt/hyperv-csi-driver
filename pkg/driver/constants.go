@@ -85,4 +85,13 @@ const (
 	KubernetesPVNameKey = "csi.storage.k8s.io/pv/name"
 )
 
+// constants of keys in PublishContext.
+const (
+	// ControllerNumberKey represents key for the controller number to use when attaching the
+	// virtual hard disk to the virtual machine.
+	ControllerNumberKey = "controllerNumber"
 
+	// ControllerLocationKey represents key for the controller location to use when attaching
+	// the virtual hard disk to the virtual machine.
+	ControllerLocationKey = "controllerLocation"
+)
