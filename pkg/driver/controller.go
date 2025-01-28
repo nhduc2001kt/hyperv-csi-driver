@@ -28,7 +28,7 @@ var (
 	// controllerCaps represents the capability of controller service.
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-		// csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		// csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
 		// csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 		// csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
@@ -245,6 +245,45 @@ func (d *ControllerService) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
+func (d *ControllerService) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
+	klog.V(4).InfoS("ControllerPublishVolume: called", "args", util.SanitizeRequest(req))
+	if err := validateControllerPublishVolumeRequest(req); err != nil {
+		return nil, err
+	}
+
+	volumeID := req.GetVolumeId()
+	nodeID := req.GetNodeId()
+
+	if !d.inFlight.Insert(volumeID + nodeID) {
+		return nil, status.Error(codes.Aborted, fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
+	}
+	defer d.inFlight.Delete(volumeID + nodeID)
+
+	klog.V(2).InfoS("ControllerPublishVolume: attaching", "volumeID", volumeID, "nodeID", nodeID)
+	// devicePath, err := d.cloud.AttachDisk(ctx, volumeID, nodeID)
+	return nil, status.Error(codes.Unimplemented, "ControllerPublishVolume is not implemented")
+}
+
+func (d *ControllerService) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
+	klog.V(4).InfoS("ControllerUnpublishVolume: called", "args", util.SanitizeRequest(req))
+
+	if err := validateControllerUnpublishVolumeRequest(req); err != nil {
+		return nil, err
+	}
+
+	volumeID := req.GetVolumeId()
+	nodeID := req.GetNodeId()
+
+	if !d.inFlight.Insert(volumeID + nodeID) {
+		return nil, status.Error(codes.Aborted, fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
+	}
+	defer d.inFlight.Delete(volumeID + nodeID)
+
+	klog.V(2).InfoS("ControllerUnpublishVolume: detaching", "volumeID", volumeID, "nodeID", nodeID)
+
+	return nil, status.Error(codes.Unimplemented, "ControllerUnpublishVolume is not implemented")
+}
+
 func newCreateVolumeResponse(output *cloud.CreateHyperVVHDOutput) *csi.CreateVolumeResponse {
 	var src *csi.VolumeContentSource
 	// if output.SnapshotID != "" {
@@ -298,6 +337,38 @@ func validateDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
 	if len(req.GetVolumeId()) == 0 {
 		return status.Error(codes.InvalidArgument, "Volume ID not provided")
 	}
+	return nil
+}
+
+func validateControllerPublishVolumeRequest(req *csi.ControllerPublishVolumeRequest) error {
+	if len(req.GetVolumeId()) == 0 {
+		return status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
+
+	if len(req.GetNodeId()) == 0 {
+		return status.Error(codes.InvalidArgument, "Node ID not provided")
+	}
+
+	volCap := req.GetVolumeCapability()
+	if volCap == nil {
+		return status.Error(codes.InvalidArgument, "Volume capability not provided")
+	}
+
+	if !isValidCapability(volCap) {
+		return status.Error(codes.InvalidArgument, "Volume capability not supported")
+	}
+	return nil
+}
+
+func validateControllerUnpublishVolumeRequest(req *csi.ControllerUnpublishVolumeRequest) error {
+	if len(req.GetVolumeId()) == 0 {
+		return status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
+
+	if len(req.GetNodeId()) == 0 {
+		return status.Error(codes.InvalidArgument, "Node ID not provided")
+	}
+
 	return nil
 }
 

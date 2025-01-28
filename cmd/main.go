@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/cloud"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/cloud/metadata"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/driver"
+	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/hvkvp/hvkvpimpl"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/mounter"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/util/types/mode"
 	flag "github.com/spf13/pflag"
@@ -47,13 +49,24 @@ func main() {
 		args = os.Args[2:]
 	}
 
-	mode, err := mode.StringToMode(cmd)
-	if err != nil {
-		klog.ErrorS(err, "Failed to parse mode")
+	switch cmd {
+	case "pre-stop-hook":
+	case "hv-kvp-daemon":
+		hvKVP := hvkvpimpl.NewHyperVKVP()
+		err := hvKVP.RunDaemon(context.Background())
+		if err != nil {
+			klog.ErrorS(err, "failed to get domain name")
+		}
+
 		klog.FlushAndExit(klog.ExitFlushTimeout, 0)
+	default:
+		options.Mode, err = mode.StringToMode(cmd)
+		if err != nil {
+			klog.ErrorS(err, "Failed to parse mode")
+			klog.FlushAndExit(klog.ExitFlushTimeout, 0)
+		}
 	}
 
-	options.Mode = mode
 	options.AddFlags(fs)
 
 	if err := fs.Parse(args); err != nil {

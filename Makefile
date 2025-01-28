@@ -11,7 +11,7 @@ ifeq ($(OS),windows)
 	OSVERSION?=ltsc2022
 else
 	BINARY=hyperv-csi-driver
-	OSVERSION?=al2023
+	OSVERSION?=debian
 endif
 
 GO_SOURCES=go.mod go.sum $(shell find pkg cmd -type f -name "*.go")

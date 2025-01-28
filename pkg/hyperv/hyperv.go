@@ -1,5 +1,6 @@
 package hyperv
 
 type HyperVClient interface {
-	HypervVHDClient
+	HyperVVHDClient
+	HyperVVMHardDiskDriveClient
 }

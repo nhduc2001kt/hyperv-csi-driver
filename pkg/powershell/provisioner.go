@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/masterzen/winrm"
-	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/util"
 	"github.com/segmentio/ksuid"
 	"k8s.io/klog/v2"
 )
@@ -26,6 +25,18 @@ const (
 func TimeOrderedUUID() string {
 	id := ksuid.New()
 	return id.String()
+}
+
+func winPath(path string) string {
+	if len(path) == 0 {
+		return path
+	}
+
+	if strings.Contains(path, " ") {
+		path = fmt.Sprintf("'%s'", strings.Trim(path, "'\""))
+	}
+
+	return strings.ReplaceAll(path, "/", "\\")
 }
 
 func doCopy(client *winrm.Client, maxChunks int, in io.Reader, toPath string) (remoteAbsolutePath string, err error) {
@@ -482,7 +493,7 @@ func uploadScript(client *winrm.Client, fileName string, command string) (remote
 
 	klog.V(6).Infof("Uploading shell wrapper for command from [%s] to [%s] ", tmpFile.Name(), remotePath)
 
-	remoteAbsolutePath, err = doCopy(client, 15, f, util.WinPath(remotePath))
+	remoteAbsolutePath, err = doCopy(client, 15, f, winPath(remotePath))
 	if err != nil {
 		return "", fmt.Errorf("error uploading shell script: %s", err)
 	}
@@ -613,7 +624,7 @@ func RunPowershell(client *winrm.Client, elevatedUser string, elevatedPassword s
 
 func UploadFile(client *winrm.Client, filePath string, remoteFilePath string) (string, error) {
 	if remoteFilePath == "" {
-		remoteFilePath = util.WinPath(filepath.Join(`$env:TEMP`, filepath.Base(filePath)))
+		remoteFilePath = winPath(filepath.Join(`$env:TEMP`, filepath.Base(filePath)))
 	}
 
 	f, err := os.Open(filePath)
@@ -680,7 +691,7 @@ func UploadDirectory(client *winrm.Client, rootPath string, excludeList []string
 			return "", []string{}, fmt.Errorf("error opening file: %s", err)
 		}
 
-		remoteFilePath, err = doCopy(client, 15, f, util.WinPath(remoteFilePath))
+		remoteFilePath, err = doCopy(client, 15, f, winPath(remoteFilePath))
 
 		err2 := f.Close()
 

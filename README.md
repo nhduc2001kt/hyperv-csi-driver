@@ -20,3 +20,6 @@ docker run --rm -it \
   -e PLATFORM=container \
   --network talos-default \
   ghcr.io/siderolabs/talos:v1.9.2
+
+
+  docker run -it --privileged --rm --user root --entrypoint /bin/bash nhduc2001kt/hyperv-csi-driver:0.1.0 

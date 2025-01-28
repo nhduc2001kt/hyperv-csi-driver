@@ -13,6 +13,8 @@ RUN --mount=type=cache,target=/gomodcache --mount=type=cache,target=/gocache OS=
 
 FROM debian:bookworm-slim AS debian
 COPY --from=builder /go/src/github.com/kubernetes-sigs/hyperv-csi-driver/bin/hyperv-csi-driver /bin/hyperv-csi-driver
+RUN apt-get update
+RUN apt-get install -y lsscsi
 RUN groupadd -g 1000 app
 RUN useradd -ms /bin/bash -u 1000 -g 1000 app
 USER app

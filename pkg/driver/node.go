@@ -23,14 +23,21 @@ import (
 	"os"
 	"time"
 
-	csi "github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/mounter"
+	// "github.com/LDCS/qslinux/scsi"
+	"github.com/container-storage-interface/spec/lib/go/csi"
+	// "github.com/dell/csi-baremetal/pkg/base/linuxutils/lsscsi"
 	"github.com/nhduc2001kt/hyperv-csi-driver/options"
+	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/hvkvp"
+	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/hvkvp/hvkvpimpl"
+	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/mounter"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 )
 
@@ -74,6 +81,8 @@ var (
 
 // NodeService represents the node service of CSI driver.
 type NodeService struct {
+	// lsscsiUtil lsscsi.WrapLsscsi
+	hypervKVP  hvkvp.HyperVKVP
 	// metadata metadata.MetadataService
 	mounter mounter.Mounter
 	// inFlight *internal.InFlight
@@ -92,8 +101,10 @@ func NewNodeService(o *options.Options, m mounter.Mounter, k kubernetes.Interfac
 	}
 
 	return &NodeService{
-		mounter: m,
-		options: o,
+		hypervKVP:  hvkvpimpl.NewHyperVKVP(),
+		// lsscsiUtil: lsscsi.NewLSSCSI(),
+		mounter:    m,
+		options:    o,
 	}
 }
 
@@ -559,36 +570,50 @@ func NewNodeService(o *options.Options, m mounter.Mounter, k kubernetes.Interfac
 // 	return &csi.NodeGetCapabilitiesResponse{Capabilities: caps}, nil
 // }
 
-// func (d *NodeService) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
-// 	klog.V(4).InfoS("NodeGetInfo: called", "args", req)
+func (d *NodeService) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+	klog.V(4).InfoS("NodeGetInfo: called", "args", req)
 
-// 	zone := d.metadata.GetAvailabilityZone()
-// 	osType := runtime.GOOS
+	klog.V(2).Info("Waiting for Hyper-V KVP daemon to start")
+	if err := d.hypervKVP.WaitDaemonPool(ctx, 3); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to wait for Hyper-V KVP daemon: %v", err)
+	}
 
-// 	segments := map[string]string{
-// 		ZoneTopologyKey:          zone,
-// 		WellKnownZoneTopologyKey: zone,
-// 		OSTopologyKey:            osType,
-// 	}
+	klog.V(2).Info("Reading Hyper-V KVP info")
+	var info *hvkvp.HyperVKVPInfo
+	err := retry.OnError(
+		wait.Backoff{
+			Steps:    5,
+			Duration: 1 * time.Second,
+			Factor:   2,
+			Jitter:   0,
+		},
+		func(err error) bool {
+			return true
+		},
+		func() error {
+			i, err := d.hypervKVP.ReadPool(ctx, 3)
+			if err != nil {
+				return err
+			}
 
-// 	outpostArn := d.metadata.GetOutpostArn()
+			if i.VirtualMachineID == "" {
+				return fmt.Errorf("virtual macine ID is empty")
+			}
 
-// 	// to my surprise ARN's string representation is not empty for empty ARN
-// 	if len(outpostArn.Resource) > 0 {
-// 		segments[AwsRegionKey] = outpostArn.Region
-// 		segments[AwsPartitionKey] = outpostArn.Partition
-// 		segments[AwsAccountIDKey] = outpostArn.AccountID
-// 		segments[AwsOutpostIDKey] = outpostArn.Resource
-// 	}
+			info = i
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to read Hyper-V KVP info: %v", err)
+	}
 
-// 	topology := &csi.Topology{Segments: segments}
-
-// 	return &csi.NodeGetInfoResponse{
-// 		NodeId:             d.metadata.GetInstanceID(),
-// 		MaxVolumesPerNode:  d.getVolumesLimit(),
-// 		AccessibleTopology: topology,
-// 	}, nil
-// }
+	return &csi.NodeGetInfoResponse{
+		NodeId:            info.VirtualMachineID,
+		MaxVolumesPerNode: d.getVolumesLimit(),
+		// AccessibleTopology: topology,
+	}, nil
+}
 
 // func (d *NodeService) nodePublishVolumeForBlock(req *csi.NodePublishVolumeRequest, mountOptions []string) error {
 // 	target := req.GetTargetPath()
@@ -751,50 +776,51 @@ func NewNodeService(o *options.Options, m mounter.Mounter, k kubernetes.Interfac
 // 	return nil
 // }
 
-// // getVolumesLimit returns the limit of volumes that the node supports.
-// func (d *NodeService) getVolumesLimit() int64 {
-// 	if d.options.VolumeAttachLimit >= 0 {
-// 		return d.options.VolumeAttachLimit
-// 	}
-// 	if util.IsSBE(d.metadata.GetRegion()) {
-// 		return sbeDeviceVolumeAttachmentLimit
-// 	}
+// getVolumesLimit returns the limit of volumes that the node supports.
+func (d *NodeService) getVolumesLimit() int64 {
+	// smap := d.lsscsiUtil.GetSCSIDevices()
+	// if d.options.VolumeAttachLimit >= 0 {
+	// 	return d.options.VolumeAttachLimit
+	// }
+	// if util.IsSBE(d.metadata.GetRegion()) {
+	// 	return sbeDeviceVolumeAttachmentLimit
+	// }
 
-// 	instanceType := d.metadata.GetInstanceType()
+	// instanceType := d.metadata.GetInstanceType()
 
-// 	isNitro := cloud.IsNitroInstanceType(instanceType)
-// 	availableAttachments := cloud.GetMaxAttachments(isNitro)
+	// isNitro := cloud.IsNitroInstanceType(instanceType)
+	// availableAttachments := cloud.GetMaxAttachments(isNitro)
 
-// 	reservedVolumeAttachments := d.options.ReservedVolumeAttachments
-// 	if reservedVolumeAttachments == -1 {
-// 		reservedVolumeAttachments = d.metadata.GetNumBlockDeviceMappings() + 1 // +1 for the root device
-// 	}
+	// reservedVolumeAttachments := d.options.ReservedVolumeAttachments
+	// if reservedVolumeAttachments == -1 {
+	// 	reservedVolumeAttachments = d.metadata.GetNumBlockDeviceMappings() + 1 // +1 for the root device
+	// }
 
-// 	dedicatedLimit := cloud.GetDedicatedLimitForInstanceType(instanceType)
-// 	maxEBSAttachments, hasMaxVolumeLimit := cloud.GetEBSLimitForInstanceType(instanceType)
-// 	if hasMaxVolumeLimit {
-// 		availableAttachments = min(maxEBSAttachments, availableAttachments)
-// 	}
-// 	// For special dedicated limit instance types, the limit is only for EBS volumes
-// 	// For (all other) Nitro instances, attachments are shared between EBS volumes, ENIs and NVMe instance stores
-// 	if dedicatedLimit != 0 {
-// 		availableAttachments = dedicatedLimit
-// 	} else if isNitro {
-// 		enis := d.metadata.GetNumAttachedENIs()
-// 		reservedSlots := cloud.GetReservedSlotsForInstanceType(instanceType)
-// 		if hasMaxVolumeLimit {
-// 			availableAttachments = availableAttachments - (enis - 1) - reservedSlots
-// 		} else {
-// 			availableAttachments = availableAttachments - enis - reservedSlots
-// 		}
-// 	}
-// 	availableAttachments -= reservedVolumeAttachments
-// 	if availableAttachments <= 0 {
-// 		availableAttachments = 1
-// 	}
+	// dedicatedLimit := cloud.GetDedicatedLimitForInstanceType(instanceType)
+	// maxEBSAttachments, hasMaxVolumeLimit := cloud.GetEBSLimitForInstanceType(instanceType)
+	// if hasMaxVolumeLimit {
+	// 	availableAttachments = min(maxEBSAttachments, availableAttachments)
+	// }
+	// // For special dedicated limit instance types, the limit is only for EBS volumes
+	// // For (all other) Nitro instances, attachments are shared between EBS volumes, ENIs and NVMe instance stores
+	// if dedicatedLimit != 0 {
+	// 	availableAttachments = dedicatedLimit
+	// } else if isNitro {
+	// 	enis := d.metadata.GetNumAttachedENIs()
+	// 	reservedSlots := cloud.GetReservedSlotsForInstanceType(instanceType)
+	// 	if hasMaxVolumeLimit {
+	// 		availableAttachments = availableAttachments - (enis - 1) - reservedSlots
+	// 	} else {
+	// 		availableAttachments = availableAttachments - enis - reservedSlots
+	// 	}
+	// }
+	// availableAttachments -= reservedVolumeAttachments
+	// if availableAttachments <= 0 {
+	// 	availableAttachments = 1
+	// }
 
-// 	return int64(availableAttachments)
-// }
+	return 62
+}
 
 // // hasMountOption returns a boolean indicating whether the given
 // // slice already contains a mount option. This is used to prevent
@@ -920,6 +946,8 @@ func checkAllocatable(clientset kubernetes.Interface, nodeName string) error {
 
 	for _, driver := range csiNode.Spec.Drivers {
 		if driver.Name == DriverName {
+			klog.InfoS("CSINode driver found", "driver", driver.Name, "allocatable", driver.Allocatable)
+
 			if driver.Allocatable != nil && driver.Allocatable.Count != nil {
 				klog.InfoS("CSINode Allocatable value is set", "nodeName", nodeName, "count", *driver.Allocatable.Count)
 				return nil

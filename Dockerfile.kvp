@@ -1,0 +1,30 @@
+FROM ubuntu:25.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+USER root
+RUN apt-get update && apt-get install -y linux-tools-generic linux-cloud-tools-generic
+
+COPY <<EOF /entrypoint.sh
+#!/bin/bash
+
+for dir in /usr/lib/linux-tools/*-generic/; do
+  if [[ -d "\$dir" ]]; then
+    file="\${dir}hv_kvp_daemon"
+
+    if [[ -f "\$file" && -x "\$file" ]]; then
+      echo "Run daemon: \$file"
+      "\$file" -n
+      echo "Done"
+      exit 0
+    fi
+  fi
+done
+
+echo "Daemon not found"
+exit 1
+EOF
+
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT [ "/entrypoint.sh" ]

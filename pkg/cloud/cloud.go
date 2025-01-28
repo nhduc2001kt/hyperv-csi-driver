@@ -3,7 +3,6 @@ package cloud
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/nhduc2001kt/hyperv-csi-driver/options"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/hyperv"
@@ -45,9 +44,14 @@ type DeleteHyperVVHDInput struct {
 
 type DeleteHyperVVHDOutput struct{}
 
+type AttachHyperVVHDInput struct{}
+
+type AttachHyperVVHDOutput struct{}
+
 type Cloud interface {
 	CreateHyperVVHD(context.Context, *CreateHyperVVHDInput) (*CreateHyperVVHDOutput, error)
 	DeleteHyperVVHD(context.Context, *DeleteHyperVVHDInput) (*DeleteHyperVVHDOutput, error)
+	AttachHyperVVHD(context.Context, *AttachHyperVVHDInput) (*AttachHyperVVHDOutput, error)
 }
 
 type CloudConfig interface {
@@ -77,7 +81,7 @@ func (c *cloud) CreateHyperVVHD(ctx context.Context, i *CreateHyperVVHDInput) (*
 
 	client := c.hypervClient
 	vhdFile := fmt.Sprintf("%s%s", i.Name, hyperv.VHDFormatExtension[i.Format])
-	vhdPath := util.WinPath(filepath.Join(c.vhdBasePath, vhdFile))
+	vhdPath := util.JoinWinPath(c.vhdBasePath, vhdFile)
 	err := client.CreateOrUpdateVHD(
 		ctx,
 		vhdPath,
@@ -110,4 +114,11 @@ func (c *cloud) DeleteHyperVVHD(ctx context.Context, i *DeleteHyperVVHDInput) (*
 	}
 
 	return &DeleteHyperVVHDOutput{}, nil
+}
+
+func (c *cloud) AttachHyperVVHD(ctx context.Context, i *AttachHyperVVHDInput) (*AttachHyperVVHDOutput, error) {
+	klog.V(4).InfoS("AttachHyperVVHD: called", "args", util.SanitizeRequest(i))
+	
+
+	return &AttachHyperVVHDOutput{}, nil
 }

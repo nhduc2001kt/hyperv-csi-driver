@@ -17,6 +17,9 @@ limitations under the License.
 package util
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"net/url"
@@ -173,6 +176,8 @@ func SanitizeRequest(req interface{}) interface{} {
 	return req
 }
 
+// ValueOrDefault returns the value of a pointer if it is not nil,
+// otherwise it returns the default value
 func ValueOrDefault[T any](v *T, d T) T {
 	if v == nil {
 		return d
@@ -180,14 +185,53 @@ func ValueOrDefault[T any](v *T, d T) T {
 	return *v
 }
 
-func WinPath(path string) string {
-	if len(path) == 0 {
-		return path
+// JoinWinPath joins the elements of path with "\\" and returns the result
+func JoinWinPath(elem ...string) string {
+	for i, e := range elem {
+		if e != "" {
+			return filepath.Clean(strings.Join(elem[i:], string("\\")))
+		}
 	}
 
-	if strings.Contains(path, " ") {
-		path = fmt.Sprintf("'%s'", strings.Trim(path, "'\""))
+	return ""
+}
+
+// SerializeData is helper function to serialize data
+func SerializeData[T any](msg *T) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, msg)
+	if err != nil {
+		return nil, err
 	}
 
-	return strings.ReplaceAll(path, "/", "\\")
+	return buf.Bytes(), nil
+}
+
+// DeserializeData is helper function to deserialize data
+func DeserializeData[T any](data []byte) (*T, error) {
+	buf := bytes.NewReader(data)
+	msg := new(T)
+	err := binary.Read(buf, binary.LittleEndian, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return msg, nil
+}
+
+// GetFileFirstLine returns the first line of a file
+func GetFileFirstLine(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	// Read the first line
+	scanner := bufio.NewScanner(file)
+	if scanner.Scan() {
+		return scanner.Text(), nil
+	}
+
+	return "", scanner.Err()
 }

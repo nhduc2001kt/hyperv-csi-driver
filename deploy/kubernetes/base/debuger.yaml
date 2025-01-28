@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: privileged-debugger
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: privileged-debugger
+  template:
+    metadata:
+      labels:
+        app: privileged-debugger
+    spec:
+      securityContext:
+        fsGroup: 0
+        runAsGroup: 0
+        runAsNonRoot: false
+        runAsUser: 0
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+      containers:
+      - name: debugger
+        image: ubuntu:latest
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+        command:
+        - /bin/bash
+        - -c
+        - |
+          sleep infinity
+        volumeMounts:
+        - name: host-root
+          mountPath: /host
+        tty: true
+        stdin: true
+      tolerations:
+      - operator: Exists
+      volumes:
+      - name: host-root
+        hostPath:
+          path: /
+      terminationGracePeriodSeconds: 30

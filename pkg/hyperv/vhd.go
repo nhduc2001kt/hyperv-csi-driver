@@ -186,7 +186,7 @@ type VHD struct {
 	VHDFormat               VHDFormat
 }
 
-type HypervVHDClient interface {
+type HyperVVHDClient interface {
 	VHDExists(ctx context.Context, path string) (result VHDExists, err error)
 	CreateOrUpdateVHD(ctx context.Context, path string, source string, sourceVm string, sourceDisk int, vhdType VHDType, parentPath string, size uint64, blockSize uint32, logicalSectorSize uint32, physicalSectorSize uint32) (err error)
 	ResizeVHD(ctx context.Context, path string, size uint64) (err error)
