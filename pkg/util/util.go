@@ -28,6 +28,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	csi "github.com/container-storage-interface/spec/lib/go/csi"
@@ -185,6 +186,14 @@ func ValueOrDefault[T any](v *T, d T) T {
 	return *v
 }
 
+func ItoaOrDefault(v *int, d string) string {
+	if v == nil {
+		return d
+	}
+
+	return strconv.Itoa(*v)
+}
+
 // JoinWinPath joins the elements of path with "\\" and returns the result
 func JoinWinPath(elem ...string) string {
 	for i, e := range elem {
@@ -234,4 +243,9 @@ func GetFileFirstLine(filePath string) (string, error) {
 	}
 
 	return "", scanner.Err()
+}
+
+// IsTrue returns true if the value is "true"
+func IsTrue(value string) bool {
+	return value == "true"
 }

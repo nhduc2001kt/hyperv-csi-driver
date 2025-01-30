@@ -105,11 +105,15 @@ func (d *ControllerService) CreateVolume(ctx context.Context, req *csi.CreateVol
 	defer d.inFlight.Delete(volName)
 
 	var (
-		vhdType      = hyperv.VHDTypeFixed
-		vhdFormat    = hyperv.VHDFormatVHDX
-		vhdBlockSize uint32
-		tags         = map[string]string{}
-		// vhdSize     uint64
+		vhdType         = hyperv.VHDTypeFixed
+		vhdFormat       = hyperv.VHDFormatVHDX
+		vhdBlockSize    uint32
+		tags            = map[string]string{}
+		inodeSize       string
+		bytesPerInode   string
+		numberOfInodes  string
+		ext4BigAlloc    bool
+		ext4ClusterSize string
 	)
 
 	tProps := new(template.PVProps)
@@ -127,18 +131,12 @@ func (d *ControllerService) CreateVolume(ctx context.Context, req *csi.CreateVol
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "Could not parse invalid VHD format: %v", err)
 			}
-		case VHDBlockSize:
+		case VHDBlockSizeKey:
 			parseBlockSizeKey, parseBlockSizeKeyErr := strconv.ParseInt(value, 10, 32)
 			if parseBlockSizeKeyErr != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "Could not parse invalid block size: %v", err)
 			}
 			vhdBlockSize = uint32(parseBlockSizeKey)
-		// case VHDSize:
-		// 	parseSizeKey, parseSizeKeyErr := strconv.ParseInt(value, 10, 64)
-		// 	if parseSizeKeyErr != nil {
-		// 		return nil, status.Errorf(codes.InvalidArgument, "Could not parse invalid size: %v", err)
-		// 	}
-		// 	vhdSize = uint64(parseSizeKey)
 		case KubernetesPVCNameKey:
 			tags[PVCNameTag] = value
 			tProps.PVCName = value
@@ -148,6 +146,28 @@ func (d *ControllerService) CreateVolume(ctx context.Context, req *csi.CreateVol
 		case KubernetesPVNameKey:
 			tags[PVNameTag] = value
 			tProps.PVName = value
+		case InodeSizeKey:
+			if isAlphanumeric := util.StringIsAlphanumeric(value); !isAlphanumeric {
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse inodeSize (%s): %v", value, err)
+			}
+			inodeSize = value
+		case BytesPerInodeKey:
+			if isAlphanumeric := util.StringIsAlphanumeric(value); !isAlphanumeric {
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse bytesPerInode (%s): %v", value, err)
+			}
+			bytesPerInode = value
+		case NumberOfInodesKey:
+			if isAlphanumeric := util.StringIsAlphanumeric(value); !isAlphanumeric {
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse numberOfInodes (%s): %v", value, err)
+			}
+			numberOfInodes = value
+		case Ext4BigAllocKey:
+			ext4BigAlloc = util.IsTrue(value)
+		case Ext4ClusterSizeKey:
+			if isAlphanumeric := util.StringIsAlphanumeric(value); !isAlphanumeric {
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse ext4ClusterSize (%s): %v", value, err)
+			}
+			ext4ClusterSize = value
 		default:
 			return nil, status.Errorf(codes.InvalidArgument, "Invalid parameter key %s for CreateVolume", key)
 		}
@@ -174,6 +194,45 @@ func (d *ControllerService) CreateVolume(ctx context.Context, req *csi.CreateVol
 	_ = snapshotID
 
 	// TODO: handle Accessibility Requirements
+
+	responseCtx := map[string]string{}
+
+	if vhdBlockSize > 0 {
+		responseCtx[VHDBlockSizeKey] = strconv.Itoa(int(vhdBlockSize))
+		if err = validateFormattingOption(volCap, VHDBlockSizeKey, FileSystemConfigs); err != nil {
+			return nil, err
+		}
+	}
+	if len(inodeSize) > 0 {
+		responseCtx[InodeSizeKey] = inodeSize
+		if err = validateFormattingOption(volCap, InodeSizeKey, FileSystemConfigs); err != nil {
+			return nil, err
+		}
+	}
+	if len(bytesPerInode) > 0 {
+		responseCtx[BytesPerInodeKey] = bytesPerInode
+		if err = validateFormattingOption(volCap, BytesPerInodeKey, FileSystemConfigs); err != nil {
+			return nil, err
+		}
+	}
+	if len(numberOfInodes) > 0 {
+		responseCtx[NumberOfInodesKey] = numberOfInodes
+		if err = validateFormattingOption(volCap, NumberOfInodesKey, FileSystemConfigs); err != nil {
+			return nil, err
+		}
+	}
+	if ext4BigAlloc {
+		responseCtx[Ext4BigAllocKey] = "true"
+		if err = validateFormattingOption(volCap, Ext4BigAllocKey, FileSystemConfigs); err != nil {
+			return nil, err
+		}
+	}
+	if len(ext4ClusterSize) > 0 {
+		responseCtx[Ext4ClusterSizeKey] = ext4ClusterSize
+		if err = validateFormattingOption(volCap, Ext4ClusterSizeKey, FileSystemConfigs); err != nil {
+			return nil, err
+		}
+	}
 
 	// Fill volume tags
 	if d.options.KubernetesClusterID != "" {
@@ -259,8 +318,6 @@ func (d *ControllerService) ControllerPublishVolume(ctx context.Context, req *cs
 	}
 	defer d.inFlight.Delete(volumeID + nodeID)
 
-	klog.V(2).InfoS("ControllerPublishVolume: attaching", "volumeID", volumeID, "nodeID", nodeID)
-
 	input := cloud.AttachHyperVVHDInput{
 		VmID:    nodeID,
 		VHDPath: volumeID,
@@ -271,8 +328,8 @@ func (d *ControllerService) ControllerPublishVolume(ctx context.Context, req *cs
 	}
 
 	pvInfo := map[string]string{
-		ControllerNumberKey:   string(output.ControllerNumber),
-		ControllerLocationKey: string(output.ControllerLocation),
+		ControllerNumberKey:   strconv.Itoa(int(output.ControllerNumber)),
+		ControllerLocationKey: strconv.Itoa(int(output.ControllerLocation)),
 	}
 	return &csi.ControllerPublishVolumeResponse{PublishContext: pvInfo}, nil
 }
@@ -338,6 +395,26 @@ func newCreateVolumeResponse(output *cloud.CreateHyperVVHDOutput) *csi.CreateVol
 			ContentSource: src,
 		},
 	}
+}
+
+func validateFormattingOption(volumeCapabilities []*csi.VolumeCapability, paramName string, fsConfigs map[string]fileSystemConfig) error {
+	for _, volCap := range volumeCapabilities {
+		if isBlock(volCap) {
+			return status.Error(codes.InvalidArgument, fmt.Sprintf("Cannot use %s with block volume", paramName))
+		}
+
+		mountVolume := volCap.GetMount()
+		if mountVolume == nil {
+			return status.Error(codes.InvalidArgument, "CreateVolume: mount is nil within volume capability")
+		}
+
+		fsType := mountVolume.GetFsType()
+		if supported := fsConfigs[fsType].isParameterSupported(paramName); !supported {
+			return status.Errorf(codes.InvalidArgument, "Cannot use %s with fstype %s", paramName, fsType)
+		}
+	}
+
+	return nil
 }
 
 func validateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {

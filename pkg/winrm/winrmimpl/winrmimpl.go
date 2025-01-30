@@ -13,6 +13,7 @@ import (
 
 	"github.com/dylanmei/iso8601"
 	pool "github.com/jolestar/go-commons-pool/v2"
+	"k8s.io/klog/v2"
 
 	"github.com/masterzen/winrm"
 	"github.com/nhduc2001kt/hyperv-csi-driver/options"
@@ -159,30 +160,28 @@ type winrmClient struct {
 
 func (c *winrmClient) RunFireAndForgetScript(ctx context.Context, script *template.Template, args interface{}) error {
 	var scriptRendered bytes.Buffer
-	err := script.Execute(&scriptRendered, args)
 
+	klog.V(4).InfoS("Execute: called")
+	err := script.Execute(&scriptRendered, args)
 	if err != nil {
 		return err
 	}
-
 	command := scriptRendered.String()
 
 	winrmClient, err := c.winRmClientPool.BorrowObject(ctx)
-
 	if err != nil {
 		return err
 	}
 
+	klog.V(4).InfoS("RunPowershell: called")
 	_, _, _, err = powershell.RunPowershell(winrmClient.(*winrm.Client), c.elevatedUser, c.elevatedPassword, c.vars, command)
-
-	err2 := c.winRmClientPool.ReturnObject(ctx, winrmClient)
-
+	klog.V(4).InfoS("ReturnObject: called")
+	errRet := c.winRmClientPool.ReturnObject(ctx, winrmClient)
 	if err != nil {
 		return err
 	}
-
-	if err2 != nil {
-		return err2
+	if errRet != nil {
+		return errRet
 	}
 
 	return nil

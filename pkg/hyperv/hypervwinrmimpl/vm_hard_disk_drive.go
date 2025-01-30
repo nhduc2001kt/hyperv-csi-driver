@@ -12,6 +12,8 @@ import (
 var (
 	//go:embed scripts/Attach-VMHardDiskDrive.ps1
 	attachVMHardDiskDriveFile string
+	//go:embed scripts/Detach-VMHardDiskDrive.ps1
+	detachVMHardDiskDriveFile string
 	//go:embed scripts/Create-VMHardDiskDrive.ps1
 	createVMHardDiskDriveFile string
 	//go:embed scripts/Get-VMHardDiskDrives.ps1
@@ -26,6 +28,7 @@ var (
 
 var (
 	attachVMHardDiskDriveTemplate   = template.Must(template.New("AttachVMHardDiskDrive").Parse(attachVMHardDiskDriveFile))
+	detachVMHardDiskDriveTemplate   = template.Must(template.New("DetachVMHardDiskDrive").Parse(detachVMHardDiskDriveFile))
 	createVMHardDiskDriveTemplate   = template.Must(template.New("CreateVMHardDiskDrive").Parse(createVMHardDiskDriveFile))
 	getVMHardDiskDrivesTemplate     = template.Must(template.New("GetVMHardDiskDrives").Parse(getVMHardDiskDrivesFile))
 	getVMHardDiskDrivesByIDTemplate = template.Must(template.New("GetVMHardDiskDrivesByID").Parse(getVMHardDiskDrivesByIDFile))
@@ -34,6 +37,12 @@ var (
 )
 
 type attachVMHardDiskDriveArgs struct {
+	ID                  string
+	VMHardDiskDriveJson string
+}
+
+type detachVMHardDiskDriveArgs struct {
+	ID                  string
 	VMHardDiskDriveJson string
 }
 
@@ -64,25 +73,40 @@ type deleteVMHardDiskDriveArgs struct {
 
 func (c *hypervClientImpl) AttachVMHardDiskDrive(
 	ctx context.Context,
-	vmName string,
+	vmID string,
 	controllerType hyperv.ControllerType,
 	path string,
-) (err error) {
+) (result hyperv.VMHardDiskDrive, err error) {
 	vmHardDiskDriveJson, err := json.Marshal(hyperv.VMHardDiskDrive{
-		VMName:         vmName,
 		ControllerType: controllerType,
 		Path:           path,
 	})
-
 	if err != nil {
-		return err
+		return
 	}
 
-	err = c.winrmClient.RunFireAndForgetScript(ctx, attachVMHardDiskDriveTemplate, attachVMHardDiskDriveArgs{
+	err = c.winrmClient.RunScriptWithResult(ctx, attachVMHardDiskDriveTemplate, attachVMHardDiskDriveArgs{
+		ID:                  vmID,
+		VMHardDiskDriveJson: string(vmHardDiskDriveJson),
+	}, &result)
+
+	return
+}
+
+func (c *hypervClientImpl) DetachVMHardDiskDrive(ctx context.Context, vmID string, path string) (err error) {
+	vmHardDiskDriveJson, err := json.Marshal(hyperv.VMHardDiskDrive{
+		Path: path,
+	})
+	if err != nil {
+		return
+	}
+
+	err = c.winrmClient.RunFireAndForgetScript(ctx, detachVMHardDiskDriveTemplate, detachVMHardDiskDriveArgs{
+		ID:                  vmID,
 		VMHardDiskDriveJson: string(vmHardDiskDriveJson),
 	})
 
-	return err
+	return
 }
 
 func (c *hypervClientImpl) CreateVMHardDiskDrive(

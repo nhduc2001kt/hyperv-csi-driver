@@ -21,15 +21,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
-	// "github.com/LDCS/qslinux/scsi"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	// "github.com/dell/csi-baremetal/pkg/base/linuxutils/lsscsi"
 	"github.com/nhduc2001kt/hyperv-csi-driver/options"
+	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/driver/internal"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/hvkvp"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/hvkvp/hvkvpimpl"
 	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/mounter"
+	"github.com/nhduc2001kt/hyperv-csi-driver/pkg/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
@@ -52,22 +54,13 @@ const (
 	// sbeDeviceVolumeAttachmentLimit = 10
 )
 
-// var (
-// 	ValidFSTypes = map[string]struct{}{
-// 		FSTypeExt3: {},
-// 		FSTypeExt4: {},
-// 		FSTypeXfs:  {},
-// 		FSTypeNtfs: {},
-// 	}
-// )
-
 var (
 	// nodeCaps represents the capability of node service.
-	// nodeCaps = []csi.NodeServiceCapability_RPC_Type{
-	// 	csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
-	// 	csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
-	// 	csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
-	// }
+	nodeCaps = []csi.NodeServiceCapability_RPC_Type{
+		csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+		// csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
+		// csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
+	}
 
 	// taintRemovalInitialDelay is the initial delay for node taint removal.
 	taintRemovalInitialDelay = 1 * time.Second
@@ -82,11 +75,11 @@ var (
 // NodeService represents the node service of CSI driver.
 type NodeService struct {
 	// lsscsiUtil lsscsi.WrapLsscsi
-	hypervKVP  hvkvp.HyperVKVP
+	hypervKVP hvkvp.HyperVKVP
 	// metadata metadata.MetadataService
-	mounter mounter.Mounter
-	// inFlight *internal.InFlight
-	options *options.Options
+	mounter  mounter.Mounter
+	inFlight *internal.InFlight
+	options  *options.Options
 	csi.UnimplementedNodeServer
 }
 
@@ -101,250 +94,280 @@ func NewNodeService(o *options.Options, m mounter.Mounter, k kubernetes.Interfac
 	}
 
 	return &NodeService{
-		hypervKVP:  hvkvpimpl.NewHyperVKVP(),
+		hypervKVP: hvkvpimpl.NewHyperVKVP(),
 		// lsscsiUtil: lsscsi.NewLSSCSI(),
-		mounter:    m,
-		options:    o,
+		inFlight: internal.NewInFlight(),
+		mounter:  m,
+		options:  o,
 	}
 }
 
-// func (d *NodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
-// 	klog.V(4).InfoS("NodeStageVolume: called", "args", util.SanitizeRequest(req))
+func (d *NodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+	klog.V(4).InfoS("NodeStageVolume: called", "args", util.SanitizeRequest(req))
 
-// 	volumeID := req.GetVolumeId()
-// 	if len(volumeID) == 0 {
-// 		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
-// 	}
+	volumeID := req.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
 
-// 	target := req.GetStagingTargetPath()
-// 	if len(target) == 0 {
-// 		return nil, status.Error(codes.InvalidArgument, "Staging target not provided")
-// 	}
+	target := req.GetStagingTargetPath()
+	if len(target) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Staging target not provided")
+	}
 
-// 	volCap := req.GetVolumeCapability()
-// 	if volCap == nil {
-// 		return nil, status.Error(codes.InvalidArgument, "Volume capability not provided")
-// 	}
+	volCap := req.GetVolumeCapability()
+	if volCap == nil {
+		return nil, status.Error(codes.InvalidArgument, "Volume capability not provided")
+	}
 
-// 	if !isValidVolumeCapabilities([]*csi.VolumeCapability{volCap}) {
-// 		return nil, status.Error(codes.InvalidArgument, "Volume capability not supported")
-// 	}
-// 	volumeContext := req.GetVolumeContext()
-// 	if isValidVolumeContext := isValidVolumeContext(volumeContext); !isValidVolumeContext {
-// 		return nil, status.Error(codes.InvalidArgument, "Volume Attribute is not valid")
-// 	}
+	if !isValidVolumeCapabilities([]*csi.VolumeCapability{volCap}) {
+		return nil, status.Error(codes.InvalidArgument, "Volume capability not supported")
+	}
+	volumeContext := req.GetVolumeContext()
+	if isValidVolumeContext := isValidVolumeContext(volumeContext); !isValidVolumeContext {
+		return nil, status.Error(codes.InvalidArgument, "Volume Attribute is not valid")
+	}
 
-// 	// If the access type is block, do nothing for stage
-// 	if _, isAccessTypeBlock := volCap.GetAccessType().(*csi.VolumeCapability_Block); isAccessTypeBlock {
-// 		return &csi.NodeStageVolumeResponse{}, nil
-// 	}
+	// If the access type is block, do nothing for stage
+	if _, isAccessTypeBlock := volCap.GetAccessType().(*csi.VolumeCapability_Block); isAccessTypeBlock {
+		klog.V(4).InfoS("NodeStageVolume: called. Since it is a block device, ignoring...", "volumeID", volumeID, "target", target)
+		return &csi.NodeStageVolumeResponse{}, nil
+	}
 
-// 	mountVolume := volCap.GetMount()
-// 	if mountVolume == nil {
-// 		return nil, status.Error(codes.InvalidArgument, "NodeStageVolume: mount is nil within volume capability")
-// 	}
+	mountVolume := volCap.GetMount()
+	if mountVolume == nil {
+		return nil, status.Error(codes.InvalidArgument, "NodeStageVolume: mount is nil within volume capability")
+	}
 
-// 	fsType := mountVolume.GetFsType()
-// 	if len(fsType) == 0 {
-// 		fsType = defaultFsType
-// 	}
+	fsType := mountVolume.GetFsType()
+	if len(fsType) == 0 {
+		fsType = FSTypeExt4
+	}
 
-// 	_, ok := ValidFSTypes[strings.ToLower(fsType)]
-// 	if !ok {
-// 		return nil, status.Errorf(codes.InvalidArgument, "NodeStageVolume: invalid fstype %s", fsType)
-// 	}
+	_, ok := ValidFSTypes[strings.ToLower(fsType)]
+	if !ok {
+		return nil, status.Errorf(codes.InvalidArgument, "NodeStageVolume: invalid fstype %s", fsType)
+	}
 
-// 	context := req.GetVolumeContext()
+	context := req.GetVolumeContext()
 
-// 	blockSize, err := recheckFormattingOptionParameter(context, BlockSizeKey, FileSystemConfigs, fsType)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	inodeSize, err := recheckFormattingOptionParameter(context, InodeSizeKey, FileSystemConfigs, fsType)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	bytesPerInode, err := recheckFormattingOptionParameter(context, BytesPerInodeKey, FileSystemConfigs, fsType)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	numInodes, err := recheckFormattingOptionParameter(context, NumberOfInodesKey, FileSystemConfigs, fsType)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	ext4BigAlloc, err := recheckFormattingOptionParameter(context, Ext4BigAllocKey, FileSystemConfigs, fsType)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	ext4ClusterSize, err := recheckFormattingOptionParameter(context, Ext4ClusterSizeKey, FileSystemConfigs, fsType)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	_, err := recheckFormattingOptionParameter(context, VHDTypeKey, FileSystemConfigs, fsType)
+	if err != nil {
+		return nil, err
+	}
+	_, err = recheckFormattingOptionParameter(context, VHDFormatKey, FileSystemConfigs, fsType)
+	if err != nil {
+		return nil, err
+	}
+	vhdBlockSize, err := recheckFormattingOptionParameter(context, VHDBlockSizeKey, FileSystemConfigs, fsType)
+	if err != nil {
+		return nil, err
+	}
+	inodeSize, err := recheckFormattingOptionParameter(context, InodeSizeKey, FileSystemConfigs, fsType)
+	if err != nil {
+		return nil, err
+	}
+	bytesPerInode, err := recheckFormattingOptionParameter(context, BytesPerInodeKey, FileSystemConfigs, fsType)
+	if err != nil {
+		return nil, err
+	}
+	numInodes, err := recheckFormattingOptionParameter(context, NumberOfInodesKey, FileSystemConfigs, fsType)
+	if err != nil {
+		return nil, err
+	}
+	ext4BigAlloc, err := recheckFormattingOptionParameter(context, Ext4BigAllocKey, FileSystemConfigs, fsType)
+	if err != nil {
+		return nil, err
+	}
+	ext4ClusterSize, err := recheckFormattingOptionParameter(context, Ext4ClusterSizeKey, FileSystemConfigs, fsType)
+	if err != nil {
+		return nil, err
+	}
 
-// 	mountOptions := collectMountOptions(fsType, mountVolume.GetMountFlags())
+	mountOptions := collectMountOptions(fsType, mountVolume.GetMountFlags())
 
-// 	if ok = d.inFlight.Insert(volumeID); !ok {
-// 		return nil, status.Errorf(codes.Aborted, VolumeOperationAlreadyExists, volumeID)
-// 	}
-// 	defer func() {
-// 		klog.V(4).InfoS("NodeStageVolume: volume operation finished", "volumeID", volumeID)
-// 		d.inFlight.Delete(volumeID)
-// 	}()
+	if ok = d.inFlight.Insert(volumeID); !ok {
+		return nil, status.Errorf(codes.Aborted, VolumeOperationAlreadyExists, volumeID)
+	}
+	defer func() {
+		klog.V(4).InfoS("NodeStageVolume: volume operation finished", "volumeID", volumeID)
+		d.inFlight.Delete(volumeID)
+	}()
 
-// 	devicePath, ok := req.GetPublishContext()[DevicePathKey]
-// 	if !ok {
-// 		return nil, status.Error(codes.InvalidArgument, "Device path not provided")
-// 	}
+	controllerNumberStr, ok := req.GetPublishContext()[ControllerNumberKey]
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "Device path not provided")
+	}
+	controllerNumber, err := strconv.Atoi(controllerNumberStr)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid controller number %s", controllerNumberStr)
+	}
 
-// 	partition := ""
-// 	if part, ok := volumeContext[VolumeAttributePartition]; ok {
-// 		if part != "0" {
-// 			partition = part
-// 		} else {
-// 			klog.InfoS("NodeStageVolume: invalid partition config, will ignore.", "partition", part)
-// 		}
-// 	}
+	controllerLocationStr, ok := req.GetPublishContext()[ControllerLocationKey]
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "Device path not provided")
+	}
+	controllerLocation, err := strconv.Atoi(controllerLocationStr)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid controller location %s", controllerLocationStr)
+	}
 
-// 	source, err := d.mounter.FindDevicePath(devicePath, volumeID, partition, d.metadata.GetRegion())
-// 	if err != nil {
-// 		return nil, status.Errorf(codes.NotFound, "Failed to find device path %s. %v", devicePath, err)
-// 	}
+	devicePath, err := d.mounter.GetSCSIBlockDevicePath(&controllerNumber, nil, nil, &controllerLocation)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get SCSI block device path: %v", err)
+	}
 
-// 	klog.V(4).InfoS("NodeStageVolume: find device path", "devicePath", devicePath, "source", source)
-// 	exists, err := d.mounter.PathExists(target)
-// 	if err != nil {
-// 		msg := fmt.Sprintf("failed to check if target %q exists: %v", target, err)
-// 		return nil, status.Error(codes.Internal, msg)
-// 	}
-// 	// When exists is true it means target path was created but device isn't mounted.
-// 	// We don't want to do anything in that case and let the operation proceed.
-// 	// Otherwise we need to create the target directory.
-// 	if !exists {
-// 		// If target path does not exist we need to create the directory where volume will be staged
-// 		klog.V(4).InfoS("NodeStageVolume: creating target dir", "target", target)
-// 		if err = d.mounter.MakeDir(target); err != nil {
-// 			msg := fmt.Sprintf("could not create target dir %q: %v", target, err)
-// 			return nil, status.Error(codes.Internal, msg)
-// 		}
-// 	}
+	partition := ""
+	if part, ok := volumeContext[VolumeAttributePartition]; ok {
+		if part != "0" {
+			partition = part
+		} else {
+			klog.InfoS("NodeStageVolume: invalid partition config, will ignore.", "partition", part)
+		}
+	}
 
-// 	// Check if a device is mounted in target directory
-// 	device, _, err := d.mounter.GetDeviceNameFromMount(target)
-// 	if err != nil {
-// 		msg := fmt.Sprintf("failed to check if volume is already mounted: %v", err)
-// 		return nil, status.Error(codes.Internal, msg)
-// 	}
+	source, err := d.mounter.FindDevicePath(devicePath, partition)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "Failed to find device path %s. %v", devicePath, err)
+	}
 
-// 	// This operation (NodeStageVolume) MUST be idempotent.
-// 	// If the volume corresponding to the volume_id is already staged to the staging_target_path,
-// 	// and is identical to the specified volume_capability the Plugin MUST reply 0 OK.
-// 	klog.V(4).InfoS("NodeStageVolume: checking if volume is already staged", "device", device, "source", source, "target", target)
-// 	if device == source {
-// 		klog.V(4).InfoS("NodeStageVolume: volume already staged", "volumeID", volumeID)
-// 		return &csi.NodeStageVolumeResponse{}, nil
-// 	}
+	klog.V(4).InfoS("NodeStageVolume: find device path", "devicePath", devicePath, "source", source)
+	exists, err := d.mounter.PathExists(target)
+	if err != nil {
+		msg := fmt.Sprintf("failed to check if target %q exists: %v", target, err)
+		return nil, status.Error(codes.Internal, msg)
+	}
+	// When exists is true it means target path was created but device isn't mounted.
+	// We don't want to do anything in that case and let the operation proceed.
+	// Otherwise we need to create the target directory.
+	if !exists {
+		// If target path does not exist we need to create the directory where volume will be staged
+		klog.V(4).InfoS("NodeStageVolume: creating target dir", "target", target)
+		if err = d.mounter.MakeDir(target); err != nil {
+			msg := fmt.Sprintf("could not create target dir %q: %v", target, err)
+			return nil, status.Error(codes.Internal, msg)
+		}
+	}
 
-// 	// FormatAndMount will format only if needed
-// 	klog.V(4).InfoS("NodeStageVolume: staging volume", "source", source, "volumeID", volumeID, "target", target, "fstype", fsType)
-// 	formatOptions := []string{}
-// 	if len(blockSize) > 0 {
-// 		if fsType == FSTypeXfs {
-// 			blockSize = "size=" + blockSize
-// 		}
-// 		formatOptions = append(formatOptions, "-b", blockSize)
-// 	}
-// 	if len(inodeSize) > 0 {
-// 		option := "-I"
-// 		if fsType == FSTypeXfs {
-// 			option, inodeSize = "-i", "size="+inodeSize
-// 		}
-// 		formatOptions = append(formatOptions, option, inodeSize)
-// 	}
-// 	if len(bytesPerInode) > 0 {
-// 		formatOptions = append(formatOptions, "-i", bytesPerInode)
-// 	}
-// 	if len(numInodes) > 0 {
-// 		formatOptions = append(formatOptions, "-N", numInodes)
-// 	}
-// 	if ext4BigAlloc == "true" {
-// 		formatOptions = append(formatOptions, "-O", "bigalloc")
-// 	}
-// 	if len(ext4ClusterSize) > 0 {
-// 		formatOptions = append(formatOptions, "-C", ext4ClusterSize)
-// 	}
-// 	if fsType == FSTypeXfs && d.options.LegacyXFSProgs {
-// 		formatOptions = append(formatOptions, "-m", "bigtime=0,inobtcount=0,reflink=0")
-// 	}
-// 	err = d.mounter.FormatAndMountSensitiveWithFormatOptions(source, target, fsType, mountOptions, nil, formatOptions)
-// 	if err != nil {
-// 		msg := fmt.Sprintf("could not format %q and mount it at %q: %v", source, target, err)
-// 		return nil, status.Error(codes.Internal, msg)
-// 	}
+	// Check if a device is mounted in target directory
+	device, _, err := d.mounter.GetDeviceNameFromMount(target)
+	if err != nil {
+		msg := fmt.Sprintf("failed to check if volume is already mounted: %v", err)
+		return nil, status.Error(codes.Internal, msg)
+	}
 
-// 	needResize, err := d.mounter.NeedResize(source, target)
-// 	if err != nil {
-// 		return nil, status.Errorf(codes.Internal, "Could not determine if volume %q (%q) need to be resized:  %v", req.GetVolumeId(), source, err)
-// 	}
+	// This operation (NodeStageVolume) MUST be idempotent.
+	// If the volume corresponding to the volume_id is already staged to the staging_target_path,
+	// and is identical to the specified volume_capability the Plugin MUST reply 0 OK.
+	klog.V(4).InfoS("NodeStageVolume: checking if volume is already staged", "device", device, "source", source, "target", target)
+	if device == source {
+		klog.V(4).InfoS("NodeStageVolume: volume already staged", "volumeID", volumeID)
+		return &csi.NodeStageVolumeResponse{}, nil
+	}
 
-// 	if needResize {
-// 		klog.V(2).InfoS("Volume needs resizing", "source", source)
-// 		if _, err := d.mounter.Resize(source, target); err != nil {
-// 			return nil, status.Errorf(codes.Internal, "Could not resize volume %q (%q):  %v", volumeID, source, err)
-// 		}
-// 	}
-// 	klog.V(4).InfoS("NodeStageVolume: successfully staged volume", "source", source, "volumeID", volumeID, "target", target, "fstype", fsType)
-// 	return &csi.NodeStageVolumeResponse{}, nil
-// }
+	// FormatAndMount will format only if needed
+	klog.V(4).InfoS("NodeStageVolume: staging volume", "source", source, "volumeID", volumeID, "target", target, "fstype", fsType)
+	formatOptions := []string{}
+	if len(vhdBlockSize) > 0 {
+		if fsType == FSTypeXfs {
+			vhdBlockSize = "size=" + vhdBlockSize
+		}
+		formatOptions = append(formatOptions, "-b", vhdBlockSize)
+	}
+	if len(inodeSize) > 0 {
+		option := "-I"
+		if fsType == FSTypeXfs {
+			option, inodeSize = "-i", "size="+inodeSize
+		}
+		formatOptions = append(formatOptions, option, inodeSize)
+	}
+	if len(bytesPerInode) > 0 {
+		formatOptions = append(formatOptions, "-i", bytesPerInode)
+	}
+	if len(numInodes) > 0 {
+		formatOptions = append(formatOptions, "-N", numInodes)
+	}
+	if ext4BigAlloc == "true" {
+		formatOptions = append(formatOptions, "-O", "bigalloc")
+	}
+	if len(ext4ClusterSize) > 0 {
+		formatOptions = append(formatOptions, "-C", ext4ClusterSize)
+	}
+	// if fsType == FSTypeXfs && d.options.LegacyXFSProgs {
+	// 	formatOptions = append(formatOptions, "-m", "bigtime=0,inobtcount=0,reflink=0")
+	// }
 
-// func (d *NodeService) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
-// 	klog.V(4).InfoS("NodeUnstageVolume: called", "args", req)
-// 	volumeID := req.GetVolumeId()
-// 	if len(volumeID) == 0 {
-// 		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
-// 	}
+	err = d.mounter.FormatAndMountSensitiveWithFormatOptions(source, target, fsType, mountOptions, nil, formatOptions)
+	if err != nil {
+		msg := fmt.Sprintf("could not format %q and mount it at %q: %v", source, target, err)
+		return nil, status.Error(codes.Internal, msg)
+	}
 
-// 	target := req.GetStagingTargetPath()
-// 	if len(target) == 0 {
-// 		return nil, status.Error(codes.InvalidArgument, "Staging target not provided")
-// 	}
+	needResize, err := d.mounter.NeedResize(source, target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not determine if volume %q (%q) need to be resized:  %v", req.GetVolumeId(), source, err)
+	}
 
-// 	if ok := d.inFlight.Insert(volumeID); !ok {
-// 		return nil, status.Errorf(codes.Aborted, VolumeOperationAlreadyExists, volumeID)
-// 	}
-// 	defer func() {
-// 		klog.V(4).InfoS("NodeUnStageVolume: volume operation finished", "volumeID", volumeID)
-// 		d.inFlight.Delete(volumeID)
-// 	}()
+		if needResize {
+			klog.V(2).InfoS("Volume needs resizing", "source", source)
+			if _, err := d.mounter.Resize(source, target); err != nil {
+				return nil, status.Errorf(codes.Internal, "Could not resize volume %q (%q):  %v", volumeID, source, err)
+			}
+		}
+	
+	klog.V(4).InfoS("NodeStageVolume: successfully staged volume", "source", source, "volumeID", volumeID, "target", target, "fstype", fsType)
+	return &csi.NodeStageVolumeResponse{}, nil
+}
 
-// 	// Check if target directory is a mount point. GetDeviceNameFromMount
-// 	// given a mnt point, finds the device from /proc/mounts
-// 	// returns the device name, reference count, and error code
-// 	dev, refCount, err := d.mounter.GetDeviceNameFromMount(target)
-// 	if err != nil {
-// 		msg := fmt.Sprintf("failed to check if target %q is a mount point: %v", target, err)
-// 		return nil, status.Error(codes.Internal, msg)
-// 	}
+func (d *NodeService) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+	klog.V(4).InfoS("NodeUnstageVolume: called", "args", req)
+	volumeID := req.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
 
-// 	// From the spec: If the volume corresponding to the volume_id
-// 	// is not staged to the staging_target_path, the Plugin MUST
-// 	// reply 0 OK.
-// 	if refCount == 0 {
-// 		klog.V(5).InfoS("[Debug] NodeUnstageVolume: target not mounted", "target", target)
-// 		return &csi.NodeUnstageVolumeResponse{}, nil
-// 	}
+	target := req.GetStagingTargetPath()
+	if len(target) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Staging target not provided")
+	}
 
-// 	if refCount > 1 {
-// 		klog.InfoS("NodeUnstageVolume: found references to device mounted at target path", "refCount", refCount, "device", dev, "target", target)
-// 	}
+	if ok := d.inFlight.Insert(volumeID); !ok {
+		return nil, status.Errorf(codes.Aborted, VolumeOperationAlreadyExists, volumeID)
+	}
+	defer func() {
+		klog.V(4).InfoS("NodeUnStageVolume: volume operation finished", "volumeID", volumeID)
+		d.inFlight.Delete(volumeID)
+	}()
 
-// 	klog.V(4).InfoS("NodeUnstageVolume: unmounting", "target", target)
-// 	err = d.mounter.Unstage(target)
-// 	if err != nil {
-// 		return nil, status.Errorf(codes.Internal, "Could not unmount target %q: %v", target, err)
-// 	}
-// 	klog.V(4).InfoS("NodeUnStageVolume: successfully unstaged volume", "volumeID", volumeID, "target", target)
-// 	return &csi.NodeUnstageVolumeResponse{}, nil
-// }
+	// Check if target directory is a mount point. GetDeviceNameFromMount
+	// given a mnt point, finds the device from /proc/mounts
+	// returns the device name, reference count, and error code
+	dev, refCount, err := d.mounter.GetDeviceNameFromMount(target)
+	if err != nil {
+		msg := fmt.Sprintf("failed to check if target %q is a mount point: %v", target, err)
+		return nil, status.Error(codes.Internal, msg)
+	}
+
+	// From the spec: If the volume corresponding to the volume_id
+	// is not staged to the staging_target_path, the Plugin MUST
+	// reply 0 OK.
+	if refCount == 0 {
+		klog.V(5).InfoS("[Debug] NodeUnstageVolume: target not mounted", "target", target)
+		return &csi.NodeUnstageVolumeResponse{}, nil
+	}
+
+	if refCount > 1 {
+		klog.InfoS("NodeUnstageVolume: found references to device mounted at target path", "refCount", refCount, "device", dev, "target", target)
+	}
+
+	klog.V(4).InfoS("NodeUnstageVolume: unmounting", "target", target)
+	err = d.mounter.Unstage(target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not unmount target %q: %v", target, err)
+	}
+	klog.V(4).InfoS("NodeUnStageVolume: successfully unstaged volume", "volumeID", volumeID, "target", target)
+	return &csi.NodeUnstageVolumeResponse{}, nil
+}
 
 // func (d *NodeService) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
 // 	klog.V(4).InfoS("NodeExpandVolume: called", "args", util.SanitizeRequest(req))
@@ -554,21 +577,21 @@ func NewNodeService(o *options.Options, m mounter.Mounter, k kubernetes.Interfac
 // 	}, nil
 // }
 
-// func (d *NodeService) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
-// 	klog.V(4).InfoS("NodeGetCapabilities: called", "args", req)
-// 	caps := make([]*csi.NodeServiceCapability, 0, len(nodeCaps))
-// 	for _, cap := range nodeCaps {
-// 		c := &csi.NodeServiceCapability{
-// 			Type: &csi.NodeServiceCapability_Rpc{
-// 				Rpc: &csi.NodeServiceCapability_RPC{
-// 					Type: cap,
-// 				},
-// 			},
-// 		}
-// 		caps = append(caps, c)
-// 	}
-// 	return &csi.NodeGetCapabilitiesResponse{Capabilities: caps}, nil
-// }
+func (d *NodeService) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
+	klog.V(4).InfoS("NodeGetCapabilities: called", "args", req)
+	caps := make([]*csi.NodeServiceCapability, 0, len(nodeCaps))
+	for _, cap := range nodeCaps {
+		c := &csi.NodeServiceCapability{
+			Type: &csi.NodeServiceCapability_Rpc{
+				Rpc: &csi.NodeServiceCapability_RPC{
+					Type: cap,
+				},
+			},
+		}
+		caps = append(caps, c)
+	}
+	return &csi.NodeGetCapabilitiesResponse{Capabilities: caps}, nil
+}
 
 func (d *NodeService) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
 	klog.V(4).InfoS("NodeGetInfo: called", "args", req)
@@ -822,38 +845,38 @@ func (d *NodeService) getVolumesLimit() int64 {
 	return 62
 }
 
-// // hasMountOption returns a boolean indicating whether the given
-// // slice already contains a mount option. This is used to prevent
-// // passing duplicate option to the mount command.
-// func hasMountOption(options []string, opt string) bool {
-// 	for _, o := range options {
-// 		if o == opt {
-// 			return true
-// 		}
-// 	}
-// 	return false
-// }
+// hasMountOption returns a boolean indicating whether the given
+// slice already contains a mount option. This is used to prevent
+// passing duplicate option to the mount command.
+func hasMountOption(options []string, opt string) bool {
+	for _, o := range options {
+		if o == opt {
+			return true
+		}
+	}
+	return false
+}
 
-// // collectMountOptions returns array of mount options from
-// // VolumeCapability_MountVolume and special mount options for
-// // given filesystem.
-// func collectMountOptions(fsType string, mntFlags []string) []string {
-// 	var options []string
-// 	for _, opt := range mntFlags {
-// 		if !hasMountOption(options, opt) {
-// 			options = append(options, opt)
-// 		}
-// 	}
+// collectMountOptions returns array of mount options from
+// VolumeCapability_MountVolume and special mount options for
+// given filesystem.
+func collectMountOptions(fsType string, mntFlags []string) []string {
+	var options []string
+	for _, opt := range mntFlags {
+		if !hasMountOption(options, opt) {
+			options = append(options, opt)
+		}
+	}
 
-// 	// By default, xfs does not allow mounting of two volumes with the same filesystem uuid.
-// 	// Force ignore this uuid to be able to mount volume + its clone / restored snapshot on the same node.
-// 	if fsType == FSTypeXfs {
-// 		if !hasMountOption(options, "nouuid") {
-// 			options = append(options, "nouuid")
-// 		}
-// 	}
-// 	return options
-// }
+	// By default, xfs does not allow mounting of two volumes with the same filesystem uuid.
+	// Force ignore this uuid to be able to mount volume + its clone / restored snapshot on the same node.
+	if fsType == FSTypeXfs {
+		if !hasMountOption(options, "nouuid") {
+			options = append(options, "nouuid")
+		}
+	}
+	return options
+}
 
 // Struct for JSON patch operations.
 type JSONPatch struct {
@@ -959,20 +982,37 @@ func checkAllocatable(clientset kubernetes.Interface, nodeName string) error {
 	return fmt.Errorf("isAllocatableSet: driver not found on node %s", nodeName)
 }
 
-// func recheckFormattingOptionParameter(context map[string]string, key string, fsConfigs map[string]fileSystemConfig, fsType string) (value string, err error) {
-// 	v, ok := context[key]
-// 	if ok {
-// 		// This check is already performed on the controller side
-// 		// However, because it is potentially security-sensitive, we redo it here to be safe
-// 		if isAlphanumeric := util.StringIsAlphanumeric(v); !isAlphanumeric {
-// 			return "", status.Errorf(codes.InvalidArgument, "Invalid %s (aborting!): %v", key, err)
-// 		}
+func recheckFormattingOptionParameter(context map[string]string, key string, fsConfigs map[string]fileSystemConfig, fsType string) (value string, err error) {
+	v, ok := context[key]
+	if ok {
+		// This check is already performed on the controller side
+		// However, because it is potentially security-sensitive, we redo it here to be safe
+		if isAlphanumeric := util.StringIsAlphanumeric(v); !isAlphanumeric {
+			return "", status.Errorf(codes.InvalidArgument, "Invalid %s (aborting!): %v", key, err)
+		}
 
-// 		// In the case that the default fstype does not support custom sizes we could
-// 		// be using an invalid fstype, so recheck that here
-// 		if supported := fsConfigs[strings.ToLower(fsType)].isParameterSupported(key); !supported {
-// 			return "", status.Errorf(codes.InvalidArgument, "Cannot use %s with fstype %s", key, fsType)
-// 		}
-// 	}
-// 	return v, nil
-// }
+		// In the case that the default fstype does not support custom sizes we could
+		// be using an invalid fstype, so recheck that here
+		if supported := fsConfigs[strings.ToLower(fsType)].isParameterSupported(key); !supported {
+			return "", status.Errorf(codes.InvalidArgument, "Cannot use %s with fstype %s", key, fsType)
+		}
+	}
+	return v, nil
+}
+
+func isValidVolumeContext(volContext map[string]string) bool {
+	// There could be multiple volume attributes in the volumeContext map
+	// Validate here case by case
+	if partition, ok := volContext[VolumeAttributePartition]; ok {
+		partitionInt, err := strconv.ParseInt(partition, 10, 64)
+		if err != nil {
+			klog.ErrorS(err, "failed to parse partition as int", "partition", partition)
+			return false
+		}
+		if partitionInt < 0 {
+			klog.ErrorS(err, "invalid partition config", "partition", partition)
+			return false
+		}
+	}
+	return true
+}

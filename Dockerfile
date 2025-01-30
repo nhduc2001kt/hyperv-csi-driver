@@ -9,7 +9,7 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION
 ARG GOEXPERIMENT
-RUN --mount=type=cache,target=/gomodcache --mount=type=cache,target=/gocache OS=$TARGETOS ARCH=$TARGETARCH make
+RUN --mount=type=cache,target=/gomodcache --mount=type=cache,target=/gocache CGO_ENABLED=1 OS=$TARGETOS ARCH=$TARGETARCH make
 
 FROM debian:bookworm-slim AS debian
 COPY --from=builder /go/src/github.com/kubernetes-sigs/hyperv-csi-driver/bin/hyperv-csi-driver /bin/hyperv-csi-driver

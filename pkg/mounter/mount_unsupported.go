@@ -1,22 +1,6 @@
 //go:build darwin
 // +build darwin
 
-/*
-Copyright 2019 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package mounter
 
 import (
@@ -42,7 +26,7 @@ func NewSafeMounterV2() (*mountutils.SafeFormatAndMount, error) {
 	return nil, errors.New("NewSafeMounterV2 is not supported on this platform")
 }
 
-func (m *NodeMounter) FindDevicePath(devicePath, volumeID, partition, region string) (string, error) {
+func (m *NodeMounter) FindDevicePath(devicePath, partition string) (string, error) {
 	return stubMessage, errors.New(stubMessage)
 }
 
@@ -52,6 +36,10 @@ func (m *NodeMounter) PreparePublishTarget(target string) error {
 
 func (m *NodeMounter) IsBlockDevice(fullPath string) (bool, error) {
 	return false, errors.New(stubMessage)
+}
+
+func (m *NodeMounter) GetSCSIBlockDevicePath(host, bus, target, lun *int) (string, error) {
+	return "", errors.New(stubMessage)
 }
 
 func (m *NodeMounter) GetBlockSizeBytes(devicePath string) (int64, error) {

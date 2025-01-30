@@ -8,6 +8,17 @@ import (
 // A superstruct of SafeFormatAndMount.
 type Mounter interface {
 	mountutils.Interface
+
+	FormatAndMountSensitiveWithFormatOptions(source string, target string, fstype string, options []string, sensitiveOptions []string, formatOptions []string) error
+	IsBlockDevice(fullPath string) (bool, error)
+	GetSCSIBlockDevicePath(host *int, bus *int, target *int, lun *int) (string, error)
+	GetDeviceNameFromMount(mountPath string) (string, int, error)
+	FindDevicePath(devicePath, partition string) (string, error)
+	PathExists(path string) (bool, error)
+	MakeDir(path string) error
+	NeedResize(devicePath string, deviceMountPath string) (bool, error)
+	Resize(devicePath, deviceMountPath string) (bool, error)
+	Unstage(path string) error
 }
 
 // NodeMounter implements Mounter.
@@ -32,4 +43,3 @@ func NewNodeMounter(hostprocess bool) (Mounter, error) {
 	}
 	return &NodeMounter{safeMounter}, nil
 }
-

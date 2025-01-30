@@ -138,14 +138,14 @@ func (c *cloud) AttachHyperVVHD(ctx context.Context, i *AttachHyperVVHDInput) (*
 
 	client := c.hypervClient
 
-	vm, err := client.GetVMByID(ctx, i.VmID)
-	if err != nil {
-		return nil, err
-	}
+	// vm, err := client.GetVMByID(ctx, i.VmID)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	err = client.AttachVMHardDiskDrive(
+	res, err := client.AttachVMHardDiskDrive(
 		ctx,
-		vm.Name,
+		i.VmID,
 		hyperv.ControllerTypeSCSI,
 		i.VHDPath,
 	)
@@ -153,21 +153,26 @@ func (c *cloud) AttachHyperVVHD(ctx context.Context, i *AttachHyperVVHDInput) (*
 		return nil, err
 	}
 
-	vmDisks, err := client.GetVMHardDiskDrives(ctx, vm.Name)
-	if err != nil {
-		return nil, err
-	}
+	return &AttachHyperVVHDOutput{
+		ControllerNumber:   res.ControllerNumber,
+		ControllerLocation: res.ControllerLocation,
+	}, nil
 
-	for _, disk := range vmDisks {
-		if disk.Path == i.VHDPath {
-			return &AttachHyperVVHDOutput{
-				ControllerNumber:   disk.ControllerNumber,
-				ControllerLocation: disk.ControllerLocation,
-			}, nil
-		}
-	}
+	// vmDisks, err := client.GetVMHardDiskDrives(ctx, vm.Name)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	return nil, fmt.Errorf("failed to attach VHD %s to VM %s", i.VHDPath, vm.Name)
+	// for _, disk := range vmDisks {
+	// 	if disk.Path == i.VHDPath {
+	// 		return &AttachHyperVVHDOutput{
+	// 			ControllerNumber:   disk.ControllerNumber,
+	// 			ControllerLocation: disk.ControllerLocation,
+	// 		}, nil
+	// 	}
+	// }
+
+	// return nil, fmt.Errorf("failed to attach VHD %s to VM %s", i.VHDPath, vm.Name)
 }
 
 func (c *cloud) DetachHyperVVHD(ctx context.Context, i *DetachHyperVVHDInput) (*DetachHyperVVHDOutput, error) {
@@ -175,34 +180,39 @@ func (c *cloud) DetachHyperVVHD(ctx context.Context, i *DetachHyperVVHDInput) (*
 
 	client := c.hypervClient
 
-	vm, err := client.GetVMByID(ctx, i.VmID)
+	err := client.DetachVMHardDiskDrive(ctx, i.VmID, i.VHDPath)
 	if err != nil {
 		return nil, err
 	}
 
-	vmDisks, err := client.GetVMHardDiskDrives(ctx, vm.Name)
-	if err != nil {
-		return nil, err
-	}
+	// vm, err := client.GetVMByID(ctx, i.VmID)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	for _, disk := range vmDisks {
-		if disk.Path == i.VHDPath {
-			err = client.DeleteVMHardDiskDrive(
-				ctx,
-				vm.Name,
-				disk.ControllerNumber,
-				disk.ControllerLocation,
-			)
-			if err != nil {
-				return nil, err
-			}
+	// vmDisks, err := client.GetVMHardDiskDrives(ctx, vm.Name)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-			return &DetachHyperVVHDOutput{
-				ControllerLocation: disk.ControllerLocation,
-				ControllerNumber:   disk.ControllerNumber,
-			}, nil
-		}
-	}
+	// for _, disk := range vmDisks {
+	// 	if disk.Path == i.VHDPath {
+	// 		err = client.DeleteVMHardDiskDrive(
+	// 			ctx,
+	// 			vm.Name,
+	// 			disk.ControllerNumber,
+	// 			disk.ControllerLocation,
+	// 		)
+	// 		if err != nil {
+	// 			return nil, err
+	// 		}
 
-	return nil, nil
+	// 		return &DetachHyperVVHDOutput{
+	// 			ControllerLocation: disk.ControllerLocation,
+	// 			ControllerNumber:   disk.ControllerNumber,
+	// 		}, nil
+	// 	}
+	// }
+
+	return &DetachHyperVVHDOutput{}, nil
 }

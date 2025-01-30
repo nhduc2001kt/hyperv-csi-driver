@@ -240,10 +240,15 @@ type VMHardDiskDrive struct {
 type HyperVVMHardDiskDriveClient interface {
 	AttachVMHardDiskDrive(
 		ctx context.Context,
-		vmName string,
+		vmID string,
 		controllerType ControllerType,
 		path string,
-	) (err error)
+	) (VMHardDiskDrive, error)
+	DetachVMHardDiskDrive(
+		ctx context.Context,
+		vmID string,
+		path string,
+	) error
 	CreateVMHardDiskDrive(
 		ctx context.Context,
 		vmName string,
