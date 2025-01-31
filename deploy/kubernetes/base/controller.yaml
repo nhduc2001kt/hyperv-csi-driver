@@ -47,8 +47,8 @@ spec:
           args:
             - controller
             - --endpoint=$(CSI_ENDPOINT)
-            - --winrm-user=Administrator
-            - --winrm-password=Abcd!1234
+            - --winrm-user=$(WINRM_USER)
+            - --winrm-password=$(WINRM_PASSWORD)
             - --winrm-host=10.211.55.4
             - --winrm-allow-insecure
             - --v=5
@@ -59,6 +59,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: WINRM_USER
+              valueFrom:
+                secretKeyRef:
+                  name: winrm-credentials
+                  key: WINRM_USER
+            - name: WINRM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: winrm-credentials
+                  key: WINRM_PASSWORD
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/

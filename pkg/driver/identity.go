@@ -43,5 +43,6 @@ func (d *Driver) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCa
 
 func (d *Driver) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeResponse, error) {
 	klog.V(6).InfoS("Probe: called", "args", req)
+	// TODO: check if hyperv kvp is available
 	return &csi.ProbeResponse{}, nil
 }

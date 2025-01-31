@@ -76,6 +76,34 @@ func (d *ControllerService) ControllerGetCapabilities(ctx context.Context, req *
 	return &csi.ControllerGetCapabilitiesResponse{Capabilities: caps}, nil
 }
 
+func (d *ControllerService) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+	klog.V(4).InfoS("ValidateVolumeCapabilities: called", "args", req)
+	volumeID := req.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
+
+	volCaps := req.GetVolumeCapabilities()
+	if len(volCaps) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume capabilities not provided")
+	}
+
+	input := &cloud.GetHyperVVHDInput{
+		Path: volumeID,
+	}
+	if _, err := d.cloud.GetHyperVVHD(ctx, input); err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not get volume with path %q: %v", volumeID, err)
+	}
+
+	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
+	if isValidVolumeCapabilities(volCaps) {
+		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
+	}
+	return &csi.ValidateVolumeCapabilitiesResponse{
+		Confirmed: confirmed,
+	}, nil
+}
+
 func (d *ControllerService) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	klog.V(4).InfoS("CreateVolume: called", "args", util.SanitizeRequest(req))
 	if err := validateCreateVolumeRequest(req); err != nil {
@@ -298,7 +326,7 @@ func (d *ControllerService) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 		// 	return &csi.DeleteVolumeResponse{}, nil
 		// }
 		// TODO: handle error not found
-		return nil, status.Errorf(codes.Internal, "Could not delete volume ID %q: %v", volumeID, err)
+		return nil, status.Errorf(codes.Internal, "Could not delete volume path %q: %v", volumeID, err)
 	}
 
 	return &csi.DeleteVolumeResponse{}, nil
@@ -431,6 +459,7 @@ func validateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 	if !isValidVolumeCapabilities(volCaps) {
 		return status.Error(codes.InvalidArgument, "Volume capabilities not supported")
 	}
+
 	return nil
 }
 
@@ -438,6 +467,7 @@ func validateDeleteVolumeRequest(req *csi.DeleteVolumeRequest) error {
 	if len(req.GetVolumeId()) == 0 {
 		return status.Error(codes.InvalidArgument, "Volume ID not provided")
 	}
+
 	return nil
 }
 
@@ -479,6 +509,7 @@ func isValidVolumeCapabilities(v []*csi.VolumeCapability) bool {
 			return false
 		}
 	}
+
 	return true
 }
 

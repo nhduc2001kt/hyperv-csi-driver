@@ -7,7 +7,6 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: hyperv-csi-node-sa
-    namespace: default
 roleRef:
   kind: ClusterRole
   name: hyperv-csi-node-role

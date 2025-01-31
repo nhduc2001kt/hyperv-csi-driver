@@ -4,7 +4,7 @@ metadata:
   name: hyperv-pvc
 spec:
   storageClassName: "" # Empty string must be explicitly set otherwise default StorageClass will be set
-  volumeName: hyperv-pvc
+  volumeName: hyperv-pv
   accessModes:
     - ReadWriteOnce
   resources:

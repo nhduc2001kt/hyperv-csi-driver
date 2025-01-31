@@ -7,7 +7,6 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: hyperv-csi-controller-sa
-    namespace: default
 roleRef:
   kind: ClusterRole
   name: hyperv-external-provisioner-role

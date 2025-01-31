@@ -10,12 +10,4 @@ spec:
   csi:
     driver: hyperv.csi.k8s.io
     fsType: ext4
-    volumeHandle: vol-03c604538dd7d2f41
-  # nodeAffinity:
-  #   required:
-  #     nodeSelectorTerms:
-  #       - matchExpressions:
-  #           - key: topology.kubernetes.io/zone
-  #             operator: In
-  #             values:
-  #               - us-east-2c
+    volumeHandle: C:\ProgramData\Microsoft\Windows\Virtual Hard Disks\test.vhdx

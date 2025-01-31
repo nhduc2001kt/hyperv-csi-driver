@@ -20,6 +20,7 @@ const (
 	DefaultVHDBasePath = "C:\\ProgramData\\Microsoft\\Windows\\Virtual Hard Disks"
 )
 
+// CreateHyperVVHDInput represents the input for CreateHyperVVHD.
 type CreateHyperVVHDInput struct {
 	Name               string
 	Source             string
@@ -34,37 +35,62 @@ type CreateHyperVVHDInput struct {
 	PhysicalSectorSize uint32
 }
 
+// GetHyperVVHDInput represents the input for GetHyperVVHD.
+type GetHyperVVHDInput struct {
+	Path string
+}
+
+// GetHyperVVHDOutput represents the output for GetHyperVVHD.
+type GetHyperVVHDOutput struct {
+	Name               string
+	Type               hyperv.VHDType
+	Format             hyperv.VHDFormat
+	ParentPath         string
+	Size               uint64
+	BlockSize          uint32
+	LogicalSectorSize  uint32
+	PhysicalSectorSize uint32
+}
+
+// CreateHyperVVHDOutput represents the output for CreateHyperVVHD.
 type CreateHyperVVHDOutput struct {
 	Path string
 }
 
+// DeleteHyperVVHDInput represents the input for DeleteHyperVVHD.
 type DeleteHyperVVHDInput struct {
 	Path string
 }
 
+// DeleteHyperVVHDOutput represents the output for DeleteHyperVVHD.
 type DeleteHyperVVHDOutput struct{}
 
+// AttachHyperVVHDInput represents the input for AttachHyperVVHD.
 type AttachHyperVVHDInput struct {
 	VmID    string
 	VHDPath string
 }
 
+// AttachHyperVVHDOutput represents the output for AttachHyperVVHD.
 type AttachHyperVVHDOutput struct {
 	ControllerNumber   int32
 	ControllerLocation int32
 }
 
+// DetachHyperVVHDInput represents the input for DetachHyperVVHD.
 type DetachHyperVVHDInput struct {
 	VmID    string
 	VHDPath string
 }
 
+// DetachHyperVVHDOutput represents the output for DetachHyperVVHD.
 type DetachHyperVVHDOutput struct {
 	ControllerNumber   int32
 	ControllerLocation int32
 }
 
 type Cloud interface {
+	GetHyperVVHD(context.Context, *GetHyperVVHDInput) (*GetHyperVVHDOutput, error)
 	CreateHyperVVHD(context.Context, *CreateHyperVVHDInput) (*CreateHyperVVHDOutput, error)
 	DeleteHyperVVHD(context.Context, *DeleteHyperVVHDInput) (*DeleteHyperVVHDOutput, error)
 	AttachHyperVVHD(context.Context, *AttachHyperVVHDInput) (*AttachHyperVVHDOutput, error)
@@ -91,6 +117,31 @@ func NewCloud(opts *options.Options) (Cloud, error) {
 type cloud struct {
 	hypervClient hyperv.HyperVClient
 	vhdBasePath  string
+}
+
+func (c *cloud) GetHyperVVHD(ctx context.Context, i *GetHyperVVHDInput) (*GetHyperVVHDOutput, error) {
+	klog.V(4).InfoS("GetHyperVVHD: called", "args", util.SanitizeRequest(i))
+
+	client := c.hypervClient
+
+	vhd, err := client.GetVHD(ctx, i.Path)
+	if err != nil {
+		return nil, err
+	}
+	if vhd.Path != i.Path {
+		return nil, fmt.Errorf("VHD not found: %s", i.Path)
+	}
+
+	return &GetHyperVVHDOutput{
+		Name:               vhd.Path,
+		Type:               vhd.VHDType,
+		Format:             vhd.VHDFormat,
+		ParentPath:         vhd.ParentPath,
+		Size:               vhd.Size,
+		BlockSize:          vhd.BlockSize,
+		LogicalSectorSize:  vhd.LogicalSectorSize,
+		PhysicalSectorSize: vhd.PhysicalSectorSize,
+	}, nil
 }
 
 func (c *cloud) CreateHyperVVHD(ctx context.Context, i *CreateHyperVVHDInput) (*CreateHyperVVHDOutput, error) {
@@ -138,11 +189,6 @@ func (c *cloud) AttachHyperVVHD(ctx context.Context, i *AttachHyperVVHDInput) (*
 
 	client := c.hypervClient
 
-	// vm, err := client.GetVMByID(ctx, i.VmID)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
 	res, err := client.AttachVMHardDiskDrive(
 		ctx,
 		i.VmID,
@@ -157,22 +203,6 @@ func (c *cloud) AttachHyperVVHD(ctx context.Context, i *AttachHyperVVHDInput) (*
 		ControllerNumber:   res.ControllerNumber,
 		ControllerLocation: res.ControllerLocation,
 	}, nil
-
-	// vmDisks, err := client.GetVMHardDiskDrives(ctx, vm.Name)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// for _, disk := range vmDisks {
-	// 	if disk.Path == i.VHDPath {
-	// 		return &AttachHyperVVHDOutput{
-	// 			ControllerNumber:   disk.ControllerNumber,
-	// 			ControllerLocation: disk.ControllerLocation,
-	// 		}, nil
-	// 	}
-	// }
-
-	// return nil, fmt.Errorf("failed to attach VHD %s to VM %s", i.VHDPath, vm.Name)
 }
 
 func (c *cloud) DetachHyperVVHD(ctx context.Context, i *DetachHyperVVHDInput) (*DetachHyperVVHDOutput, error) {
@@ -184,35 +214,6 @@ func (c *cloud) DetachHyperVVHD(ctx context.Context, i *DetachHyperVVHDInput) (*
 	if err != nil {
 		return nil, err
 	}
-
-	// vm, err := client.GetVMByID(ctx, i.VmID)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// vmDisks, err := client.GetVMHardDiskDrives(ctx, vm.Name)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// for _, disk := range vmDisks {
-	// 	if disk.Path == i.VHDPath {
-	// 		err = client.DeleteVMHardDiskDrive(
-	// 			ctx,
-	// 			vm.Name,
-	// 			disk.ControllerNumber,
-	// 			disk.ControllerLocation,
-	// 		)
-	// 		if err != nil {
-	// 			return nil, err
-	// 		}
-
-	// 		return &DetachHyperVVHDOutput{
-	// 			ControllerLocation: disk.ControllerLocation,
-	// 			ControllerNumber:   disk.ControllerNumber,
-	// 		}, nil
-	// 	}
-	// }
 
 	return &DetachHyperVVHDOutput{}, nil
 }
