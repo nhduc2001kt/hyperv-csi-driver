@@ -107,6 +107,12 @@ func (m *NodeMounter) IsBlockDevice(fullPath string) (bool, error) {
 	return (st.Mode & unix.S_IFMT) == unix.S_IFBLK, nil
 }
 
+// IsCorruptedMnt return true if err is about corrupted mount point.
+func (m *NodeMounter) IsCorruptedMnt(err error) bool {
+	return mountutils.IsCorruptedMnt(err)
+}
+
+// GetSCSIBlockDevicePath returns the block device path for the given SCSI device.
 func (m *NodeMounter) GetSCSIBlockDevicePath(host *int, bus *int, target *int, lun *int) (string, error) {
 	hostStr := util.ItoaOrDefault(host, `\d+`)
 	busStr := util.ItoaOrDefault(bus, `\d+`)
@@ -167,6 +173,21 @@ func (m *NodeMounter) GetSCSIBlockDevicePath(host *int, bus *int, target *int, l
 
 // This function is mirrored in ./sanity_test.go to make sure sanity test covered this block of code
 // Please mirror the change to func MakeFile in ./sanity_test.go.
+func (m *NodeMounter) MakeFile(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE, os.FileMode(0644))
+	if err != nil {
+		if !os.IsExist(err) {
+			return err
+		}
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// This function is mirrored in ./sanity_test.go to make sure sanity test covered this block of code
+// Please mirror the change to func MakeFile in ./sanity_test.go.
 func (m *NodeMounter) MakeDir(path string) error {
 	err := os.MkdirAll(path, os.FileMode(0755))
 	if err != nil {
@@ -205,6 +226,21 @@ func (m *NodeMounter) Unstage(path string) error {
 	} else {
 		return err
 	}
+}
+
+// Unpublish unmounts the given path.
+func (m *NodeMounter) Unpublish(path string) error {
+	// On linux, unpublish and unstage both perform an unmount
+	return m.Unstage(path)
+}
+
+// PreparePublishTarget creates the target directory for the volume to be mounted.
+func (m *NodeMounter) PreparePublishTarget(target string) error {
+	klog.V(4).InfoS("NodePublishVolume: creating dir", "target", target)
+	if err := m.MakeDir(target); err != nil {
+		return fmt.Errorf("could not create dir %q: %w", target, err)
+	}
+	return nil
 }
 
 // appendPartition appends the partition to the device path.

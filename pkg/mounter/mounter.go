@@ -11,14 +11,18 @@ type Mounter interface {
 
 	FormatAndMountSensitiveWithFormatOptions(source string, target string, fstype string, options []string, sensitiveOptions []string, formatOptions []string) error
 	IsBlockDevice(fullPath string) (bool, error)
+	IsCorruptedMnt(err error) bool
 	GetSCSIBlockDevicePath(host *int, bus *int, target *int, lun *int) (string, error)
 	GetDeviceNameFromMount(mountPath string) (string, int, error)
 	FindDevicePath(devicePath, partition string) (string, error)
 	PathExists(path string) (bool, error)
+	MakeFile(path string) error
 	MakeDir(path string) error
 	NeedResize(devicePath string, deviceMountPath string) (bool, error)
 	Resize(devicePath, deviceMountPath string) (bool, error)
 	Unstage(path string) error
+	Unpublish(path string) error
+	PreparePublishTarget(target string) error
 }
 
 // NodeMounter implements Mounter.
