@@ -112,6 +112,30 @@ func (m *NodeMounter) IsCorruptedMnt(err error) bool {
 	return mountutils.IsCorruptedMnt(err)
 }
 
+// CountSCSIHosts returns the number of SCSI hosts.
+func (m *NodeMounter) CountSCSIHosts() (int, error) {
+	// Read the SCSI host directory
+	scsiHosts, err := os.ReadDir(classSCSIHostPath)
+	if err != nil {
+		return 0, err
+	}
+	klog.V(4).Infof("found %d SCSI hosts", len(scsiHosts))
+
+	return len(scsiHosts), nil
+}
+
+// CountSCSIDevices returns the number of SCSI devices.
+func (m *NodeMounter) CountSCSIDevices() (int, error) {
+	// Read the SCSI device directory
+	scsiDevices, err := os.ReadDir(classSCSIDevicePath)
+	if err != nil {
+		return 0, err
+	}
+	klog.V(4).Infof("found %d SCSI devices", len(scsiDevices))
+
+	return len(scsiDevices), nil
+}
+
 // GetSCSIBlockDevicePath returns the block device path for the given SCSI device.
 func (m *NodeMounter) GetSCSIBlockDevicePath(host *int, bus *int, target *int, lun *int) (string, error) {
 	hostStr := util.ItoaOrDefault(host, `\d+`)

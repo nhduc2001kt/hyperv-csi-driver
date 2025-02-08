@@ -38,6 +38,14 @@ func (m *NodeMounter) IsBlockDevice(fullPath string) (bool, error) {
 	return false, errors.New(stubMessage)
 }
 
+func (m *NodeMounter) CountSCSIHosts() (int, error) {
+	return 0, errors.New(stubMessage)
+}
+
+func (m *NodeMounter) CountSCSIDevices() (int, error) {
+	return 0, errors.New(stubMessage)
+}
+
 func (m *NodeMounter) GetSCSIBlockDevicePath(host, bus, target, lun *int) (string, error) {
 	return "", errors.New(stubMessage)
 }

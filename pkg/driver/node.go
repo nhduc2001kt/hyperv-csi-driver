@@ -53,6 +53,9 @@ const (
 
 	// sbeDeviceVolumeAttachmentLimit refers to the maximum number of volumes that can be attached to an instance on snow.
 	// sbeDeviceVolumeAttachmentLimit = 10
+
+	// MaxVolumesPerController is the number of devices per controller.
+	MaxVolumesPerController = 64
 )
 
 var (
@@ -633,9 +636,14 @@ func (d *NodeService) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 		return nil, status.Errorf(codes.Internal, "failed to read Hyper-V KVP info: %v", err)
 	}
 
+	maxVolumesPerNode , err := d.getVolumesLimit()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get volumes limit: %v", err)
+	}
+
 	return &csi.NodeGetInfoResponse{
 		NodeId:            info.VirtualMachineID,
-		MaxVolumesPerNode: d.getVolumesLimit(),
+		MaxVolumesPerNode: maxVolumesPerNode,
 		// AccessibleTopology: topology,
 	}, nil
 }
@@ -820,49 +828,14 @@ func (d *NodeService) nodePublishVolumeForFileSystem(req *csi.NodePublishVolumeR
 }
 
 // getVolumesLimit returns the limit of volumes that the node supports.
-func (d *NodeService) getVolumesLimit() int64 {
-	// smap := d.lsscsiUtil.GetSCSIDevices()
-	// if d.options.VolumeAttachLimit >= 0 {
-	// 	return d.options.VolumeAttachLimit
-	// }
-	// if util.IsSBE(d.metadata.GetRegion()) {
-	// 	return sbeDeviceVolumeAttachmentLimit
-	// }
+func (d *NodeService) getVolumesLimit() (int64, error) {
+	numController, err := d.mounter.CountSCSIHosts()
+	if err != nil {
+		klog.ErrorS(err, "Failed to count SCSI controllers")
+	}
 
-	// instanceType := d.metadata.GetInstanceType()
-
-	// isNitro := cloud.IsNitroInstanceType(instanceType)
-	// availableAttachments := cloud.GetMaxAttachments(isNitro)
-
-	// reservedVolumeAttachments := d.options.ReservedVolumeAttachments
-	// if reservedVolumeAttachments == -1 {
-	// 	reservedVolumeAttachments = d.metadata.GetNumBlockDeviceMappings() + 1 // +1 for the root device
-	// }
-
-	// dedicatedLimit := cloud.GetDedicatedLimitForInstanceType(instanceType)
-	// maxEBSAttachments, hasMaxVolumeLimit := cloud.GetEBSLimitForInstanceType(instanceType)
-	// if hasMaxVolumeLimit {
-	// 	availableAttachments = min(maxEBSAttachments, availableAttachments)
-	// }
-	// // For special dedicated limit instance types, the limit is only for EBS volumes
-	// // For (all other) Nitro instances, attachments are shared between EBS volumes, ENIs and NVMe instance stores
-	// if dedicatedLimit != 0 {
-	// 	availableAttachments = dedicatedLimit
-	// } else if isNitro {
-	// 	enis := d.metadata.GetNumAttachedENIs()
-	// 	reservedSlots := cloud.GetReservedSlotsForInstanceType(instanceType)
-	// 	if hasMaxVolumeLimit {
-	// 		availableAttachments = availableAttachments - (enis - 1) - reservedSlots
-	// 	} else {
-	// 		availableAttachments = availableAttachments - enis - reservedSlots
-	// 	}
-	// }
-	// availableAttachments -= reservedVolumeAttachments
-	// if availableAttachments <= 0 {
-	// 	availableAttachments = 1
-	// }
-
-	return 62
+	// Two volumes are reserved for the dvd drive and the boot disk.
+	return int64(numController * MaxVolumesPerController - 2), nil
 }
 
 // hasMountOption returns a boolean indicating whether the given

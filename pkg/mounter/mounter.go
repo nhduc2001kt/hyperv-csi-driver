@@ -12,6 +12,8 @@ type Mounter interface {
 	FormatAndMountSensitiveWithFormatOptions(source string, target string, fstype string, options []string, sensitiveOptions []string, formatOptions []string) error
 	IsBlockDevice(fullPath string) (bool, error)
 	IsCorruptedMnt(err error) bool
+	CountSCSIHosts() (int, error)
+	CountSCSIDevices() (int, error)
 	GetSCSIBlockDevicePath(host *int, bus *int, target *int, lun *int) (string, error)
 	GetDeviceNameFromMount(mountPath string) (string, int, error)
 	FindDevicePath(devicePath, partition string) (string, error)
