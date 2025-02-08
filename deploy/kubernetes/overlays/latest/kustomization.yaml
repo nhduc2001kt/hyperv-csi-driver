@@ -14,3 +14,10 @@ patches:
       - op: replace
         path: /data/WINRM_PASSWORD
         value:  # <------------------------------ Use your own password
+  - target:
+      kind: ConfigMap
+      name: winrm-configs
+    patch: |-
+      - op: replace
+        path: /data/WINRM_HOST
+        value:  # <------------------------------ Use your own host

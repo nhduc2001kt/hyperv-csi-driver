@@ -49,7 +49,7 @@ spec:
             - --endpoint=$(CSI_ENDPOINT)
             - --winrm-user=$(WINRM_USER)
             - --winrm-password=$(WINRM_PASSWORD)
-            - --winrm-host=10.211.55.4
+            - --winrm-host=$(WINRM_HOST)
             - --winrm-allow-insecure
             - --v=5
           env:
@@ -69,6 +69,11 @@ spec:
                 secretKeyRef:
                   name: winrm-credentials
                   key: WINRM_PASSWORD
+            - name: WINRM_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: winrm-configs
+                  key: WINRM_HOST
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/

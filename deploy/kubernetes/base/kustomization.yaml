@@ -10,6 +10,7 @@ resources:
 - clusterrolebinding-csi-controller.yaml
 - clusterrolebinding-csi-node.yaml
 - clusterrolebinding-provisioner.yaml
+- configmap.yaml
 - controller.yaml
 - csidriver.yaml
 - node.yaml
